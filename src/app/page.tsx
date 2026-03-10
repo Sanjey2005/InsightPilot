@@ -112,7 +112,7 @@ export default function Home() {
             setTimeout(() => setIsDashboard(true), 1_200);
           } else if (run.status === "failed") {
             clearInterval(pollRef.current!);
-            setRunError("The analysis pipeline encountered an error. Check the agent logs above for details.");
+            setErrorToast("The analysis pipeline encountered an error. Check the agent logs above for details.");
             setIsProcessing(false);
           }
         } catch (err) {
@@ -126,7 +126,7 @@ export default function Home() {
         }
       }, 3_000);
     },
-    [setAgentLogs, setRunStatus, setInsights, setKPIs, setIsDashboard, setIsProcessing, startFallbackSimulation]
+    [setAgentLogs, setRunStatus, setInsights, setKPIs, setIsDashboard, setIsProcessing]
   );
 
   // ── File selected from input ─────────────────────────────────────────
@@ -134,7 +134,6 @@ export default function Home() {
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
-      setUploadError(null);
       try {
         const result = await uploadDataset(file);
         setDatasetId(result.id);
@@ -154,7 +153,6 @@ export default function Home() {
       e.preventDefault();
       const file = e.dataTransfer.files?.[0];
       if (!file || !file.name.endsWith(".csv")) return;
-      setUploadError(null);
       try {
         const result = await uploadDataset(file);
         setDatasetId(result.id);
