@@ -1,65 +1,324 @@
-import Image from "next/image";
+"use client";
+
+import { useRef, useEffect, useCallback, useState } from "react";
+import { useAppStore } from "@/lib/store";
+import AgentStepper from "@/components/ui/AgentStepper";
+import KPIBar from "@/components/dashboard/KPIBar";
+import StoryCard from "@/components/dashboard/StoryCard";
+import CopilotChat from "@/components/chat/CopilotChat";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
+import {
+  uploadDataset,
+  triggerRun,
+  pollRun,
+  fallbackInsights,
+  fallbackKPIs,
+} from "@/lib/api";
 
 export default function Home() {
+  const {
+    isProcessing,
+    isDashboard,
+    datasetId,
+    insights,
+    schemaPreview,
+    setIsProcessing,
+    setIsDashboard,
+    setDatasetId,
+    setRunId,
+    setRunStatus,
+    setAgentLogs,
+    setInsights,
+    setKPIs,
+    setSchemaPreview,
+  } = useAppStore();
+
+  const heroRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const pollFailures = useRef(0);
+
+  // ── Cleanup poll on unmount ──────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  // ── GSAP exit animation (hero → stepper) ────────────────────────────
+  const { contextSafe } = useGSAP({ scope: heroRef });
+  const animateHeroOut = contextSafe(() => {
+    setIsProcessing(true);
+    gsap.to(heroRef.current, {
+      opacity: 0,
+      y: -50,
+      scale: 0.95,
+      duration: 0.8,
+      ease: "power3.inOut",
+      onComplete: () => {
+        if (heroRef.current) heroRef.current.style.display = "none";
+      },
+    });
+  });
+
+  // ── Fallback simulation (API unreachable) ────────────────────────────
+  const startFallbackSimulation = useCallback(() => {
+    const FAKE_AGENTS = [
+      "schema_agent",
+      "sql_agent",
+      "insight_agent",
+      "viz_agent",
+    ];
+    FAKE_AGENTS.forEach((agent, i) => {
+      setTimeout(() => {
+        setAgentLogs(
+          FAKE_AGENTS.slice(0, i + 1).map((a) => ({
+            agent: a,
+            status: "completed",
+            started_at: new Date().toISOString(),
+            duration_ms: 800 + Math.random() * 400,
+            error: null,
+          }))
+        );
+      }, (i + 1) * 2_200);
+    });
+    // Supervisor completes last → load mock data → show dashboard
+    setTimeout(() => {
+      setRunStatus("completed");
+      setInsights(fallbackInsights);
+      setKPIs(fallbackKPIs);
+      setTimeout(() => setIsDashboard(true), 1_200);
+    }, FAKE_AGENTS.length * 2_200 + 800);
+  }, [setAgentLogs, setRunStatus, setInsights, setKPIs, setIsDashboard]);
+
+  // ── Live polling ─────────────────────────────────────────────────────  
+  const startPolling = useCallback(
+    (runId: string) => {
+      pollFailures.current = 0;
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(async () => {
+        try {
+          const run = await pollRun(runId);
+          pollFailures.current = 0;  // reset on success
+          setAgentLogs(run.agent_logs ?? []);
+          setRunStatus(run.status);
+
+          if (run.status === "completed") {
+            clearInterval(pollRef.current!);
+            setInsights(run.insights ?? []);
+            setKPIs(run.kpis ?? []);
+            setTimeout(() => setIsDashboard(true), 1_200);
+          } else if (run.status === "failed") {
+            clearInterval(pollRef.current!);
+            setRunError("The analysis pipeline encountered an error. Check the agent logs above for details.");
+            setIsProcessing(false);
+          }
+        } catch {
+          pollFailures.current += 1;
+          if (pollFailures.current >= 3) {
+            // Backend unreachable after 3 retries → graceful fallback
+            clearInterval(pollRef.current!);
+            startFallbackSimulation();
+          }
+        }
+      }, 3_000);
+    },
+    [setAgentLogs, setRunStatus, setInsights, setKPIs, setIsDashboard, setIsProcessing, startFallbackSimulation]
+  );
+
+  // ── File selected from input ─────────────────────────────────────────
+  const handleFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setUploadError(null);
+      try {
+        const result = await uploadDataset(file);
+        setDatasetId(result.id);
+        setSchemaPreview(result.schema_preview);
+      } catch (err) {
+        setUploadError(
+          err instanceof Error ? err.message : "Upload failed — is the backend running on port 8000?"
+        );
+      }
+    },
+    [setDatasetId, setSchemaPreview]
+  );
+
+  // ── Drop zone drag-and-drop ──────────────────────────────────────────
+  const handleDrop = useCallback(
+    async (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files?.[0];
+      if (!file || !file.name.endsWith(".csv")) return;
+      setUploadError(null);
+      try {
+        const result = await uploadDataset(file);
+        setDatasetId(result.id);
+        setSchemaPreview(result.schema_preview);
+      } catch (err) {
+        setUploadError(
+          err instanceof Error ? err.message : "Upload failed — is the backend running on port 8000?"
+        );
+      }
+    },
+    [setDatasetId, setSchemaPreview]
+  );
+
+  // ── Main CTA: trigger run (or simulate if no API) ────────────────────
+  const handleAnalyze = useCallback(async () => {
+    animateHeroOut();
+
+    if (!datasetId) {
+      // No file uploaded or API was unreachable — use full mock simulation
+      startFallbackSimulation();
+      return;
+    }
+
+    try {
+      const run = await triggerRun(datasetId);
+      setRunId(run.id);
+      setRunStatus(run.status);
+      startPolling(run.id);
+    } catch {
+      // Backend unreachable after upload — fall back
+      startFallbackSimulation();
+    }
+  }, [
+    animateHeroOut,
+    datasetId,
+    startFallbackSimulation,
+    startPolling,
+    setRunId,
+    setRunStatus,
+  ]);
+
+  // ── Dashboard view ───────────────────────────────────────────────────
+  if (isDashboard) {
+    return (
+      <div className="min-h-[calc(100vh-1rem)] w-full flex flex-col relative z-20 pt-8 max-w-[1400px] mx-auto px-4 lg:pr-[35%]">
+        <KPIBar />
+        <div className="w-full mt-10 pb-32">
+          <h2 className="text-xl font-space-grotesk text-white mb-6 font-semibold drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
+            Active Insights
+          </h2>
+          {insights.length === 0 ? (
+            <p className="text-gray-400 font-inter text-sm">
+              No insights were generated for this dataset. Try uploading a dataset with more historical data or numeric metrics.
+            </p>
+          ) : (
+            insights.map((insight, i) => (
+              <StoryCard key={insight.id} insight={insight} index={i} />
+            ))
+          )}
+        </div>
+        <CopilotChat />
+      </div>
+    );
+  }
+
+  // ── Upload / hero view ───────────────────────────────────────────────
+  const ctaLabel = datasetId ? "Analyze Dataset" : "Simulate Analysis";
+  const hasSchema = schemaPreview !== null;
+
+  // ── Pipeline error view ──────────────────────────────────────────────
+  if (runError) {
+    return (
+      <div className="flex min-h-[calc(100vh-1rem)] flex-col items-center justify-center px-4 gap-6">
+        <p className="text-red-400 font-inter text-center max-w-lg">{runError}</p>
+        <button
+          onClick={() => { setRunError(null); setIsProcessing(false); }}
+          className="px-8 py-3 rounded-2xl font-space-grotesk font-semibold text-sm text-cyan-500 bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="flex min-h-[calc(100vh-1rem)] flex-col items-center justify-center px-4 relative">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      {/* Hero Dropzone */}
+      <div
+        ref={heroRef}
+        className={`flex flex-col items-center justify-center w-full max-w-4xl transition-opacity ${isProcessing ? "pointer-events-none" : ""
+          }`}
+      >
+        <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold mb-6 text-center text-white drop-shadow-[0_0_20px_rgba(6,182,212,0.4)] tracking-tight font-space-grotesk">
+          Upload Dataset.
+          <br />
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500">
+            Awaken InsightPilot.
+          </span>
+        </h1>
+
+        {/* Drop zone */}
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          onDrop={handleDrop}
+          onDragOver={(e) => e.preventDefault()}
+          className="w-full max-w-2xl bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-16 mt-8 text-center cursor-pointer transition-all duration-500 hover:bg-white/10 hover:border-cyan-400/60 hover:shadow-[0_0_40px_rgba(6,182,212,0.25)] group relative overflow-hidden"
+        >
+          <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+
+          {hasSchema ? (
+            <div className="relative z-10 flex flex-col items-center gap-2">
+              <p className="font-space-grotesk text-cyan-400 text-lg font-semibold">
+                ✓ {schemaPreview!.columns.length} columns ·{" "}
+                {schemaPreview!.row_count.toLocaleString()} rows
+              </p>
+              <p className="font-inter text-sm text-gray-400">
+                {schemaPreview!.table_name}
+              </p>
+              <p className="font-inter text-xs text-gray-600 mt-1">
+                Click to replace file
+              </p>
+            </div>
+          ) : (
+            <p className="font-space-grotesk text-gray-300 text-xl font-medium relative z-10 group-hover:text-white transition-colors">
+              Drop your CSV file here
+              <br />
+              <span className="text-sm text-gray-500 mt-2 block font-inter group-hover:text-cyan-300/80">
+                or click to browse
+              </span>
+            </p>
+          )}
+        </div>
+
+        {/* Upload error banner */}
+        {uploadError && (
+          <p className="mt-4 text-sm text-red-400 font-inter text-center max-w-xl px-2">
+            ⚠ {uploadError}
           </p>
+        )}
+
+        {/* CTA Button */}
+        <button
+          onClick={handleAnalyze}
+          className="mt-6 px-10 py-3 rounded-2xl font-space-grotesk font-semibold text-base text-cyan-500 bg-white/5 backdrop-blur-lg border border-white/10 transition-all duration-300 hover:bg-white/10 hover:border-cyan-400/40 hover:shadow-[0_0_24px_rgba(6,182,212,0.4)]"
+        >
+          {ctaLabel}
+        </button>
+      </div>
+
+      {/* Agent Stepper */}
+      {isProcessing && !isDashboard && (
+        <div className="absolute inset-0 flex items-center justify-center w-full z-20">
+          <AgentStepper />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      )}
     </div>
   );
 }
