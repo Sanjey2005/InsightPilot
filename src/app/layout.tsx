@@ -14,8 +14,17 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "InsightPilot",
-  description: "3D Immersive Analytics Copilot",
+  title: "InsightPilot — AI Analytics Copilot",
+  description:
+    "Upload a CSV and let InsightPilot's multi-agent AI pipeline surface trends, anomalies, and KPIs in seconds.",
+  keywords: ["analytics", "AI", "data insights", "CSV", "dashboard"],
+  themeColor: "#000000",
+  openGraph: {
+    title: "InsightPilot — AI Analytics Copilot",
+    description:
+      "Upload a CSV and let InsightPilot's multi-agent AI pipeline surface trends, anomalies, and KPIs in seconds.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({
