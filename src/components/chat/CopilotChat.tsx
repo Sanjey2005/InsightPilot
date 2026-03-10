@@ -11,11 +11,23 @@ import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { Send, Sparkles, User, TerminalSquare, ChevronDown, ChevronUp } from "lucide-react";
 
+import {
+  ResponsiveContainer,
+  LineChart, Line,
+  BarChart, Bar,
+  AreaChart, Area,
+  ScatterChart, Scatter,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+} from "recharts";
+import type { ChartConfig } from "@/lib/api";
+
 interface Message {
   id: string;
   role: "user" | "ai";
   content: string;
   sql?: string;
+  chart_config?: ChartConfig;
+  chart_data?: Record<string, unknown>[];
 }
 
 const DEFAULT_SUGGESTIONS = [
@@ -40,6 +52,7 @@ export default function CopilotChat() {
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [expandedSql, setExpandedSql] = useState<string | null>(null);
+  const [errorToast, setErrorToast] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -54,7 +67,7 @@ export default function CopilotChat() {
   // Fetch suggestions once datasetId is available
   useEffect(() => {
     if (!datasetId || suggestions.length > 0) return;
-    fetchSuggestions(datasetId).then(setSuggestions).catch(() => {});
+    fetchSuggestions(datasetId).then(setSuggestions).catch(() => { });
   }, [datasetId, suggestions.length, setSuggestions]);
 
   // Entrance animation
@@ -88,22 +101,20 @@ export default function CopilotChat() {
     setTimeout(animateNewMessage, 50);
 
     try {
-      if (!datasetId) throw new Error("no dataset");
+      if (!datasetId) throw new Error("No dataset selected for analysis.");
       const res = await sendChatQuery(question, datasetId);
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: "ai",
         content: res.disclaimer ? `${res.answer}\n\n${res.disclaimer}` : res.answer,
         sql: res.sql_used,
+        chart_config: res.chart_config,
+        // @ts-expect-error - The backend returns data but it's not currently strictly typed on the frontend
+        chart_data: res.data ?? [],
       };
       setMessages((prev) => [...prev, aiMsg]);
-    } catch {
-      const aiMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "ai",
-        content: fallbackChatResponse as string,
-      };
-      setMessages((prev) => [...prev, aiMsg]);
+    } catch (err) {
+      setErrorToast(err instanceof Error ? err.message : "Failed to connect to InsightPilot server.");
     } finally {
       setIsLoading(false);
       setTimeout(animateNewMessage, 50);
@@ -119,6 +130,13 @@ export default function CopilotChat() {
       ref={containerRef}
       className="fixed inset-y-0 right-0 w-[30%] min-w-[320px] max-w-[400px] bg-black/40 backdrop-blur-2xl border-l border-white/10 flex flex-col z-40 opacity-0 shadow-[-20px_0_40px_rgba(0,0,0,0.5)]"
     >
+      {errorToast && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[90%] bg-white/5 backdrop-blur-md border border-red-500/20 px-4 py-3 rounded-2xl z-50 shadow-2xl flex items-start gap-3">
+          <p className="text-red-400 font-inter text-xs leading-relaxed flex-1">{errorToast}</p>
+          <button onClick={() => setErrorToast(null)} className="text-gray-400 hover:text-white shrink-0">✕</button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="h-16 flex items-center px-6 border-b border-white/10 shrink-0 bg-white/5">
         <Sparkles className="w-5 h-5 text-cyan-400 mr-2" />
@@ -149,12 +167,92 @@ export default function CopilotChat() {
                 {msg.role === "ai" ? "InsightPilot" : "You"}
               </div>
               <div
-                className={`font-inter text-sm leading-relaxed whitespace-pre-line ${
-                  msg.role === "ai" ? "text-gray-300" : "text-white"
-                }`}
+                className={`font-inter text-sm leading-relaxed whitespace-pre-line ${msg.role === "ai" ? "text-gray-300" : "text-white"
+                  }`}
               >
                 {msg.content}
               </div>
+
+              {/* Inline Chart */}
+              {msg.chart_data && msg.chart_data.length > 0 && msg.chart_config && (
+                <div className="mt-4 w-full bg-black/30 border border-white/10 rounded-xl p-4">
+                  <h4 className="text-xs font-semibold text-gray-300 mb-4 font-inter text-center">
+                    {msg.chart_config.title}
+                  </h4>
+                  <div style={{ width: "100%", height: 180 }}>
+                    <ResponsiveContainer width="99%" height={180}>
+                      {(() => {
+                        const data = msg.chart_data;
+                        const cfg = msg.chart_config;
+                        const xKey = (cfg as any).x ?? cfg.x_key ?? "name";
+                        let yKey = (cfg as any).y ?? cfg.y_key;
+                        if (!yKey && data[0]) {
+                          yKey = Object.keys(data[0]).find(k => k !== xKey) ?? "value";
+                        }
+                        const color = cfg.color ?? "#06b6d4";
+
+                        const axisProps = {
+                          stroke: "#ffffff50",
+                          tick: { fill: "#ffffff80", fontSize: 10 },
+                          tickLine: false,
+                          axisLine: false,
+                        };
+                        const tooltipStyle = {
+                          contentStyle: {
+                            backgroundColor: "#0a0a0a",
+                            borderColor: "#ffffff20",
+                            borderRadius: "8px",
+                            color: "#fff",
+                            fontSize: "12px"
+                          },
+                        };
+
+                        const cType = cfg.chart_type ?? "line";
+                        if (cType === "bar") {
+                          return (
+                            <BarChart data={data}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" vertical={false} />
+                              <XAxis dataKey={xKey} {...axisProps} />
+                              <YAxis {...axisProps} width={40} />
+                              <Tooltip {...tooltipStyle} />
+                              <Bar dataKey={yKey} fill={color} radius={[2, 2, 0, 0]} />
+                            </BarChart>
+                          );
+                        } else if (cType === "area") {
+                          return (
+                            <AreaChart data={data}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" vertical={false} />
+                              <XAxis dataKey={xKey} {...axisProps} />
+                              <YAxis {...axisProps} width={40} />
+                              <Tooltip {...tooltipStyle} />
+                              <Area type="monotone" dataKey={yKey} stroke={color} fill={`${color}33`} strokeWidth={2} />
+                            </AreaChart>
+                          );
+                        } else if (cType === "scatter") {
+                          return (
+                            <ScatterChart>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" />
+                              <XAxis dataKey={xKey} {...axisProps} />
+                              <YAxis dataKey={yKey} {...axisProps} width={40} />
+                              <Tooltip {...tooltipStyle} />
+                              <Scatter data={data} fill={color} />
+                            </ScatterChart>
+                          );
+                        }
+                        return (
+                          <LineChart data={data}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" vertical={false} />
+                            <XAxis dataKey={xKey} {...axisProps} />
+                            <YAxis {...axisProps} width={40} />
+                            <Tooltip {...tooltipStyle} />
+                            <Line type="monotone" dataKey={yKey} stroke={color} strokeWidth={2} dot={{ r: 3, fill: "#000", strokeWidth: 2 }} activeDot={{ r: 5, fill: "#fff" }} />
+                          </LineChart>
+                        );
+                      })()}
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
 
               {/* SQL Accordion */}
               {msg.sql && (

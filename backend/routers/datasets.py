@@ -1,3 +1,5 @@
+import asyncio
+import functools
 import uuid
 from datetime import datetime
 
@@ -37,8 +39,15 @@ async def upload_dataset(
     contents = await file.read()
 
     # ── Ingest (parse → store → profile) ─────────────────────────────────
+    # Run in a thread pool executor so the synchronous pandas/SQLite work
+    # (read_csv + df.to_sql) doesn't block the asyncio event loop and freeze
+    # all other incoming requests.
     try:
-        _, table_name, schema_preview = ingest_csv(contents, file.filename, current_user.id)
+        loop = asyncio.get_event_loop()
+        _, table_name, schema_preview = await loop.run_in_executor(
+            None,
+            functools.partial(ingest_csv, contents, file.filename, current_user.id),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except Exception as exc:

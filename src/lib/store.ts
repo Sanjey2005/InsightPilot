@@ -43,6 +43,8 @@ interface AppState {
   setInsights: (insights: InsightResponse[]) => void;
   setKPIs: (kpis: KPIResponse[]) => void;
   setSuggestions: (suggestions: string[]) => void;
+  setUploadError: (val: string | null) => void;
+  setRunError: (val: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -67,4 +69,6 @@ export const useAppStore = create<AppState>((set) => ({
   setInsights: (insights) => set({ insights }),
   setKPIs: (kpis) => set({ kpis }),
   setSuggestions: (suggestions) => set({ suggestions }),
+  setUploadError: () => { }, // No longer used in state, kept for compat
+  setRunError: () => { }, // No longer used in state, kept for compat
 }));

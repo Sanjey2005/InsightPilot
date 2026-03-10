@@ -74,6 +74,95 @@ def _summarise_columns(df: pd.DataFrame) -> List[Dict]:
     return summary
 
 
+# ── KEY INSIGHT: heuristic classifier when LLM is unavailable ──────────────
+
+_METRIC_KEYWORDS    = {"revenue", "amount", "price", "total", "sales", "cost",
+                       "profit", "quantity", "qty", "count", "sum", "value",
+                       "rate", "score", "income", "spend", "budget", "margin"}
+_DIMENSION_KEYWORDS = {"category", "segment", "region", "status", "type",
+                       "channel", "method", "name", "product", "team",
+                       "department", "country", "city", "group", "tier"}
+_DATE_KEYWORDS      = {"date", "time", "timestamp", "at", "created", "updated",
+                       "month", "year", "week", "day", "period"}
+_ID_KEYWORDS        = {"id", "key", "uuid", "code", "no", "num", "ref"}
+
+
+def _heuristic_classify_columns(df: pd.DataFrame) -> Dict:
+    """
+    Classify columns using pandas dtypes and column-name keyword matching.
+    Used as a fallback when the Gemini API is unavailable.
+    """
+    classifications: Dict[str, str] = {}
+    date_col: str | None = None
+    metric_cols: List[str] = []
+    dimension_cols: List[str] = []
+    kpi_candidates: List[Dict] = []
+
+    for col in df.columns:
+        col_lower = col.lower()
+        dtype = str(df[col].dtype)
+
+        # Detect ID columns first
+        if any(kw in col_lower for kw in _ID_KEYWORDS):
+            classifications[col] = "id"
+            continue
+
+        # Detect date columns by dtype or name
+        if dtype in ("datetime64[ns]", "object") and (
+            any(kw in col_lower for kw in _DATE_KEYWORDS)
+            or df[col].astype(str).str.match(r"\d{4}-\d{2}-\d{2}").mean() > 0.5
+        ):
+            classifications[col] = "date"
+            if date_col is None:
+                date_col = col
+            continue
+
+        # Detect metrics by dtype
+        if dtype in ("int64", "float64") or dtype.startswith("int") or dtype.startswith("float"):
+            if any(kw in col_lower for kw in _METRIC_KEYWORDS):
+                classifications[col] = "metric"
+                metric_cols.append(col)
+            else:
+                # Numeric but not a known metric keyword — default metric
+                classifications[col] = "metric"
+                metric_cols.append(col)
+            continue
+
+        # Detect dimensions
+        if (
+            any(kw in col_lower for kw in _DIMENSION_KEYWORDS)
+            or df[col].nunique() < max(10, len(df) * 0.2)
+        ):
+            classifications[col] = "dimension"
+            dimension_cols.append(col)
+            continue
+
+        classifications[col] = "other"
+
+    # Trim to top candidates
+    metric_cols   = metric_cols[:3]
+    dimension_cols = dimension_cols[:3]
+
+    # Build KPI candidates from metric columns
+    for col in metric_cols:
+        col_lower = col.lower()
+        agg = "SUM"
+        if any(kw in col_lower for kw in {"price", "rate", "score", "avg", "average", "ratio"}):
+            agg = "AVG"
+        elif any(kw in col_lower for kw in {"count", "qty", "quantity", "num", "orders"}):
+            agg = "COUNT"
+        kpi_candidates.append({"name": col.replace("_", " ").title(), "column": col, "aggregation": agg})
+
+    return {
+        "classifications": classifications,
+        "date_column": date_col,
+        "metric_columns": metric_cols,
+        "dimension_columns": dimension_cols,
+        "kpi_candidates": kpi_candidates,
+    }
+
+
+
 def _build_hypotheses(schema_info: Dict, table_name: str) -> List[Dict]:
     """
     Convert schema classifications into the fixed insight-playbook hypotheses:
@@ -138,25 +227,42 @@ def run_schema_agent(state: Dict[str, Any]) -> Dict[str, Any]:
 
             col_summary = _summarise_columns(df)
 
-            schema_info = extract_json(call_gemini(
-                _CLASSIFY_PROMPT.format(
-                    table_name=table_name,
-                    columns_json=json.dumps(col_summary, indent=2),
-                ),
-                max_tokens=1_500,
-            ))
+            try:
+                # PRIMARY: LLM-based column classification
+                schema_info = extract_json(call_gemini(
+                    _CLASSIFY_PROMPT.format(
+                        table_name=table_name,
+                        columns_json=json.dumps(col_summary, indent=2),
+                    ),
+                    max_tokens=1_500,
+                ))
+                logger.info("schema_agent: Gemini classification succeeded")
+            except Exception as llm_exc:
+                # FALLBACK: heuristic classification so pipeline can still run
+                logger.warning(
+                    "schema_agent: Gemini unavailable (%s) — using heuristic fallback",
+                    llm_exc,
+                )
+                schema_info = _heuristic_classify_columns(df)
+
             hypotheses = _build_hypotheses(schema_info, table_name)
 
             log = make_log(
                 "schema_agent", "completed", t.elapsed_ms,
-                details={"columns": len(df.columns), "hypotheses": len(hypotheses)},
+                details={
+                    "columns": len(df.columns),
+                    "hypotheses": len(hypotheses),
+                    "llm_used": "heuristic" not in str(schema_info.get("classifications", {})),
+                    "date_column": schema_info.get("date_column"),
+                    "metric_columns": schema_info.get("metric_columns", []),
+                },
             )
             return {
                 "schema_info": schema_info,
                 "hypotheses": hypotheses,
                 "kpi_candidates": schema_info.get("kpi_candidates", []),
-                "agent_logs": [log],
-                "errors": [],
+                "agent_logs": state.get("agent_logs", []) + [log],
+                "errors": state.get("errors", []),
             }
 
         except Exception as exc:
@@ -166,6 +272,6 @@ def run_schema_agent(state: Dict[str, Any]) -> Dict[str, Any]:
                 "schema_info": {},
                 "hypotheses": [],
                 "kpi_candidates": [],
-                "agent_logs": [log],
-                "errors": [f"schema_agent: {exc}"],
+                "agent_logs": state.get("agent_logs", []) + [log],
+                "errors": state.get("errors", []) + [f"schema_agent: {exc}"],
             }

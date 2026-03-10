@@ -137,12 +137,9 @@ def ingest_csv(
     table_name = f"upload_{safe_uid}_{ts}"
 
     # ── 6. Persist to SQLite ───────────────────────────────────────────────
-    # Reuse the application engine so the data lands in the same DB file
-    # and can be queried by later agents without extra connection setup.
-    _engine = create_engine(
-        settings.database_url,
-        connect_args={"check_same_thread": False},
-    )
+    # Reuse the shared application engine so both the metadata session and
+    # to_sql() share the same connection pool — avoids SQLite write-lock hangs.
+    from core.database import engine as _engine  # noqa: PLC0415
     df.to_sql(table_name, _engine, if_exists="replace", index=False)
 
     # ── 7. Profile ────────────────────────────────────────────────────────

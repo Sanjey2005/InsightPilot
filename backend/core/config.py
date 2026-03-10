@@ -1,10 +1,17 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import List
 
+# Absolute path to the backend/ directory (where this file lives).
+# This ensures the SQLite DB is always found at backend/insightpilot.db
+# regardless of which directory uvicorn is launched from.
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_DEFAULT_DB_URL = f"sqlite:///{(_BACKEND_DIR / 'insightpilot.db').as_posix()}"
+
 
 class Settings(BaseSettings):
-    # Database
-    database_url: str = "sqlite:///./insightpilot.db"
+    # Database — defaults to an absolute path so it works from any cwd
+    database_url: str = _DEFAULT_DB_URL
 
     # CORS
     cors_origins: List[str] = ["http://localhost:3000"]
@@ -21,9 +28,10 @@ class Settings(BaseSettings):
 
     # LLM
     gemini_api_key: str = ""
+    groq_api_key: str = ""
 
     class Config:
-        env_file = ".env"
+        env_file = str(_BACKEND_DIR / ".env")
         env_file_encoding = "utf-8"
 
 

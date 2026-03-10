@@ -3,7 +3,7 @@ Pipeline orchestrator.
 
 execute_pipeline() is called as a FastAPI BackgroundTask. It:
   1. Updates the Run row to status="running".
-  2. Invokes the LangGraph pipeline.
+  2. Invokes each LangGraph agent in sequence, flushing logs to DB after each.
   3. Persists all Insight and KPI records.
   4. Updates the Run row to status="completed" (or "failed").
 
@@ -18,7 +18,10 @@ from typing import Any, Dict, List
 
 from sqlalchemy.orm import Session
 
-from agents.supervisor import PipelineState, pipeline
+from agents.schema_agent import run_schema_agent
+from agents.sql_agent import run_sql_agent
+from agents.insight_agent import run_insight_agent
+from agents.viz_agent import run_viz_agent
 from core.database import SessionLocal
 from models.insight import Insight
 from models.kpi import KPI
@@ -31,19 +34,37 @@ logger = logging.getLogger(__name__)
 # KPI derivation
 # ---------------------------------------------------------------------------
 
-def _derive_kpis(state: PipelineState, run_id: str) -> List[KPI]:
+def _derive_kpis(state: Dict[str, Any], run_id: str) -> List[KPI]:
     """
-    Build KPI records from the schema agent's kpi_candidates and matching
-    SQL results.  Caps at 5 KPIs per the PRD spec.
+    Compute KPI values directly from the SQLite table using proper SQL
+    aggregations (SUM, AVG, COUNT).  For time-delta, compares the most
+    recent month to the prior month.
+
+    Falls back gracefully: if a query fails, the KPI still appears with
+    value=None, delta_pct=None so the frontend can render a placeholder.
     """
+    from sqlalchemy import create_engine, text
+    from core.config import settings
+
     kpi_candidates: List[Dict] = state.get("kpi_candidates", [])
-    sql_results: List[Dict] = state.get("sql_results", [])
+    table_name: str = state.get("table_name", "")
+    schema_info: Dict = state.get("schema_info", {})
+    date_column = schema_info.get("date_column")
+
+    if not table_name:
+        return []
+
+    engine = create_engine(
+        settings.database_url, connect_args={"check_same_thread": False}
+    )
+
     kpis: List[KPI] = []
     seen: set = set()
 
     for candidate in kpi_candidates:
         col  = candidate.get("column", "")
         name = candidate.get("name", col)
+        agg  = candidate.get("aggregation", "SUM").upper()
         if name in seen:
             continue
         seen.add(name)
@@ -52,41 +73,41 @@ def _derive_kpis(state: PipelineState, run_id: str) -> List[KPI]:
         delta_pct: float | None = None
         period_label = "all time"
 
-        # Find any aggregated SQL result that covers this column
-        for result in sql_results:
-            hyp = result.get("hypothesis", {})
-            if hyp.get("kpi_column") != col:
-                continue
-            data = result.get("data", [])
-            if not data:
-                continue
+        # ── 1. Compute the all-time aggregate value ────────────────────
+        agg_fn = agg if agg in {"SUM", "AVG", "COUNT", "MAX", "MIN"} else "SUM"
+        try:
+            with engine.connect() as conn:
+                row = conn.execute(
+                    text(f'SELECT {agg_fn}("{col}") AS kpi_val FROM "{table_name}"')
+                ).fetchone()
+            if row and row[0] is not None:
+                value = round(float(row[0]), 2)
+        except Exception as exc:
+            logger.warning("KPI query failed for %s: %s", col, exc)
 
-            # Last row = most recent period value
-            last_row = data[-1]
-            for v in last_row.values():
-                try:
-                    value = float(v)
-                    break
-                except (TypeError, ValueError):
-                    pass
-
-            # Delta vs the previous period
-            if len(data) >= 2:
-                prev_row = data[-2]
-                prev_val: float | None = None
-                for v in prev_row.values():
-                    try:
-                        prev_val = float(v)
-                        break
-                    except (TypeError, ValueError):
-                        pass
-                if prev_val and prev_val != 0 and value is not None:
-                    delta_pct = round((value - prev_val) / prev_val * 100, 2)
-
-            # Use the period column name as label if available
-            period_key = list(last_row.keys())[0]
-            period_label = str(last_row.get(period_key, "all time"))
-            break
+        # ── 2. Compute MoM delta if a date column exists ──────────────
+        if date_column and value is not None:
+            try:
+                sql_mom = f"""
+                    SELECT strftime('%Y-%m', "{date_column}") AS mo,
+                           {agg_fn}("{col}") AS val
+                    FROM "{table_name}"
+                    GROUP BY mo
+                    ORDER BY mo DESC
+                    LIMIT 2
+                """
+                with engine.connect() as conn:
+                    rows = conn.execute(text(sql_mom)).fetchall()
+                if len(rows) >= 2:
+                    curr_val = float(rows[0][1]) if rows[0][1] else 0
+                    prev_val = float(rows[1][1]) if rows[1][1] else 0
+                    if prev_val != 0:
+                        delta_pct = round((curr_val - prev_val) / prev_val * 100, 1)
+                    period_label = str(rows[0][0])
+                elif len(rows) == 1:
+                    period_label = str(rows[0][0])
+            except Exception as exc:
+                logger.warning("KPI delta query failed for %s: %s", col, exc)
 
         kpis.append(KPI(
             id=str(uuid.uuid4()),
@@ -98,7 +119,38 @@ def _derive_kpis(state: PipelineState, run_id: str) -> List[KPI]:
             created_at=datetime.utcnow(),
         ))
 
+    # ── Always add "Total Orders" KPI (COUNT of all rows) ─────────────
+    if "Total Orders" not in seen:
+        try:
+            with engine.connect() as conn:
+                row = conn.execute(
+                    text(f'SELECT COUNT(*) FROM "{table_name}"')
+                ).fetchone()
+            order_count = int(row[0]) if row else 0
+        except Exception:
+            order_count = 0
+        kpis.append(KPI(
+            id=str(uuid.uuid4()),
+            run_id=run_id,
+            name="Total Orders",
+            value=float(order_count),
+            delta_pct=None,
+            period_label="all time",
+            created_at=datetime.utcnow(),
+        ))
+
     return kpis[:5]
+
+
+
+# ---------------------------------------------------------------------------
+# Helper: flush accumulated logs to the DB mid-run
+# ---------------------------------------------------------------------------
+
+def _flush_logs(db: Session, run: Run, logs: List[Dict]) -> None:
+    """Commit the current agent_logs list to the Run row immediately."""
+    run.agent_logs = json.dumps(logs)
+    db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +158,7 @@ def _derive_kpis(state: PipelineState, run_id: str) -> List[KPI]:
 # ---------------------------------------------------------------------------
 
 def execute_pipeline(run_id: str, dataset_id: str, user_id: str, table_name: str) -> None:
-    """Run the full LangGraph pipeline and persist results."""
+    """Run the full pipeline agent-by-agent, flushing logs after each step."""
     db: Session = SessionLocal()
     try:
         # ── Mark as running ────────────────────────────────────────────
@@ -117,27 +169,66 @@ def execute_pipeline(run_id: str, dataset_id: str, user_id: str, table_name: str
 
         run.status = "running"
         run.started_at = datetime.utcnow()
+        run.agent_logs = json.dumps([])
         db.commit()
 
-        # ── Invoke LangGraph ───────────────────────────────────────────
-        initial_state: PipelineState = {
-            "run_id": run_id,
-            "dataset_id": dataset_id,
-            "user_id": user_id,
-            "table_name": table_name,
-            "schema_info": {},
-            "hypotheses": [],
+        # ── Build initial state ────────────────────────────────────────
+        state: Dict[str, Any] = {
+            "run_id":       run_id,
+            "dataset_id":   dataset_id,
+            "user_id":      user_id,
+            "table_name":   table_name,
+            "schema_info":  {},
+            "hypotheses":   [],
             "kpi_candidates": [],
-            "sql_results": [],
-            "insights": [],
-            "agent_logs": [],
-            "errors": [],
+            "sql_results":  [],
+            "insights":     [],
+            "agent_logs":   [],
+            "errors":       [],
         }
-        final_state: PipelineState = pipeline.invoke(initial_state)
+
+        # ── Run agents sequentially, flushing logs after each ──────────
+        agent_fns = [
+            ("schema_agent",  run_schema_agent),
+            ("sql_agent",     run_sql_agent),
+            ("insight_agent", run_insight_agent),
+            ("viz_agent",     run_viz_agent),
+        ]
+
+        accumulated_logs: List[Dict] = []
+
+        for agent_name, agent_fn in agent_fns:
+            logger.info("Run %s: starting %s", run_id, agent_name)
+            try:
+                delta = agent_fn(state)
+                state.update(delta)
+                # The agent appends its log entry to state["agent_logs"]
+                # Accumulate and flush to DB immediately
+                accumulated_logs = state.get("agent_logs", [])
+                _flush_logs(db, run, accumulated_logs)
+                logger.info(
+                    "Run %s: %s completed (%d logs so far)",
+                    run_id, agent_name, len(accumulated_logs),
+                )
+            except Exception as agent_exc:
+                logger.exception("Run %s: %s raised an exception", run_id, agent_name)
+                error_log = {
+                    "agent": agent_name,
+                    "status": "failed",
+                    "started_at": datetime.utcnow().isoformat(),
+                    "duration_ms": 0,
+                    "error": str(agent_exc),
+                    "details": {},
+                }
+                accumulated_logs.append(error_log)
+                state["agent_logs"] = accumulated_logs
+                state["errors"].append(f"{agent_name}: {agent_exc}")
+                _flush_logs(db, run, accumulated_logs)
+                # Continue to next agents even if one fails
 
         # ── Persist insights ───────────────────────────────────────────
         insight_records: List[Insight] = []
-        for ins in final_state.get("insights", []):
+        for ins in state.get("insights", []):
             insight_records.append(Insight(
                 id=ins.get("id", str(uuid.uuid4())),
                 run_id=run_id,
@@ -155,14 +246,14 @@ def execute_pipeline(run_id: str, dataset_id: str, user_id: str, table_name: str
         db.add_all(insight_records)
 
         # ── Persist KPIs ───────────────────────────────────────────────
-        kpi_records = _derive_kpis(final_state, run_id)
+        kpi_records = _derive_kpis(state, run_id)
         db.add_all(kpi_records)
 
         # ── Finalise run ───────────────────────────────────────────────
         run.status = "completed"
         run.completed_at = datetime.utcnow()
         run.insights_count = len(insight_records)
-        run.agent_logs = json.dumps(final_state.get("agent_logs", []))
+        run.agent_logs = json.dumps(accumulated_logs)
         db.commit()
 
         logger.info(
@@ -190,3 +281,5 @@ def execute_pipeline(run_id: str, dataset_id: str, user_id: str, table_name: str
             logger.exception("Could not update run %s to failed status", run_id)
     finally:
         db.close()
+
+

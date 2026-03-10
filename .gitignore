@@ -23,3 +23,14 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+.claude/
+
+# Python Virtual Env
+venv/
+
+# SQLite Journal Files
+backend/*.db-shm
+backend/*.db-wal
+
+# Data files
+*.csv
