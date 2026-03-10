@@ -30,7 +30,7 @@ export default function KPIBar() {
   const containerRef = useRef<HTMLDivElement>(null);
   const numsRef = useRef<(HTMLSpanElement | null)[]>([]);
 
-  const kpis: KPIResponse[] = storeKpis.length > 0 ? storeKpis : fallbackKPIs;
+  const kpis: KPIResponse[] = storeKpis;
 
   useGSAP(() => {
     if (!isDashboard || numsRef.current.length === 0) return;
@@ -76,6 +76,7 @@ export default function KPIBar() {
         return (
           <div
             key={kpi.id}
+            data-print-kpi
             className="bg-white/5 backdrop-blur-md border border-white/10 p-4 rounded-2xl flex flex-col gap-2 relative overflow-hidden group min-w-0"
           >
             <div className="absolute -inset-2 bg-gradient-to-r from-cyan-500/0 via-cyan-500/5 to-purple-500/0 opacity-0 group-hover:opacity-100 blur-xl transition-opacity duration-500" />
@@ -90,11 +91,10 @@ export default function KPIBar() {
             </span>
 
             <span
-              className={`font-inter text-xs font-semibold px-2 py-1 rounded-md w-fit z-10 ${
-                isPositive
+              className={`font-inter text-xs font-semibold px-2 py-1 rounded-md w-fit z-10 ${isPositive
                   ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.1)]"
                   : "bg-red-500/10 text-red-400 border border-red-500/20"
-              }`}
+                }`}
             >
               {deltaLabel}
             </span>
