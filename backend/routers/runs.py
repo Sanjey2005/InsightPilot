@@ -36,6 +36,16 @@ class RunCreateRequest(BaseModel):
     dataset_id: str
 
 
+class AgentLog(BaseModel):
+    """Typed schema for a single agent's execution log entry."""
+    agent: str
+    status: str                    # "completed" | "failed" | "partial"
+    started_at: str                # ISO-8601 datetime string
+    duration_ms: int = 0
+    error: Optional[str] = None
+    details: Dict[str, Any] = {}
+
+
 class RunResponse(BaseModel):
     id: str
     dataset_id: str
@@ -45,7 +55,7 @@ class RunResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     created_at: datetime
-    agent_logs: Optional[List[Dict[str, Any]]] = None
+    agent_logs: List[AgentLog] = []
 
     model_config = {"from_attributes": True}
 
@@ -89,6 +99,20 @@ class TestAgentRequest(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _parse_agent_logs(raw: Optional[str]) -> List[AgentLog]:
+    """
+    Deserialise the JSON agent_logs column into a list of typed AgentLog objects.
+    Returns [] on missing/invalid data so RunDetailResponse is always well-formed.
+    """
+    if not raw:
+        return []
+    try:
+        entries = json.loads(raw)
+        return [AgentLog(**entry) for entry in (entries or [])]
+    except Exception:
+        return []
+
+
 def _serialize_run(run: Run) -> RunResponse:
     return RunResponse(
         id=run.id,
@@ -99,7 +123,7 @@ def _serialize_run(run: Run) -> RunResponse:
         started_at=run.started_at,
         completed_at=run.completed_at,
         created_at=run.created_at,
-        agent_logs=json.loads(run.agent_logs) if run.agent_logs else None,
+        agent_logs=_parse_agent_logs(run.agent_logs),
     )
 
 
@@ -185,6 +209,110 @@ def list_runs(
     return [_serialize_run(r) for r in rows]
 
 
+# ── IMPORTANT: /test-agent MUST be registered before /{run_id} so FastAPI
+# does not attempt to match the literal string "test-agent" as a run_id. ─────
+
+@router.post(
+    "/test-agent",
+    summary="[Dev] Run a single agent in isolation and return its raw output.",
+    include_in_schema=True,
+)
+def test_agent(
+    body: TestAgentRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Run one agent against a dataset and return its raw state delta.
+    Useful for iterating on agent prompts before wiring the full pipeline.
+
+    Upstream agents are automatically chained so that each agent receives
+    the outputs it depends on:
+      schema_agent  → (no deps)
+      sql_agent     → schema_agent output
+      insight_agent → schema_agent + sql_agent output
+      viz_agent     → schema_agent + sql_agent + insight_agent output
+    """
+    dataset = (
+        db.query(Dataset)
+        .filter(Dataset.id == body.dataset_id, Dataset.user_id == current_user.id)
+        .first()
+    )
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    if not dataset.table_name:
+        raise HTTPException(status_code=400, detail="Dataset has no data table.")
+
+    base_state: Dict[str, Any] = {
+        "run_id": "test",
+        "dataset_id": dataset.id,
+        "user_id": current_user.id,
+        "table_name": dataset.table_name,
+        "schema_info": {},
+        "hypotheses": [],
+        "kpi_candidates": [],
+        "sql_results": [],
+        "insights": [],
+        "agent_logs": [],
+        "errors": [],
+    }
+
+    agent_map = {
+        "schema_agent":  "agents.schema_agent.run_schema_agent",
+        "sql_agent":     "agents.sql_agent.run_sql_agent",
+        "insight_agent": "agents.insight_agent.run_insight_agent",
+        "viz_agent":     "agents.viz_agent.run_viz_agent",
+    }
+
+    if body.agent not in agent_map:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown agent '{body.agent}'. Valid: {list(agent_map)}",
+        )
+
+    import importlib
+    module_path, fn_name = agent_map[body.agent].rsplit(".", 1)
+    mod = importlib.import_module(module_path)
+    fn = getattr(mod, fn_name)
+
+    # Chain upstream agents so each receives its required inputs
+    if body.agent in ("sql_agent", "insight_agent", "viz_agent"):
+        from agents.schema_agent import run_schema_agent
+        base_state.update(run_schema_agent(base_state))
+    if body.agent in ("insight_agent", "viz_agent"):
+        from agents.sql_agent import run_sql_agent
+        base_state.update(run_sql_agent(base_state))
+    if body.agent == "viz_agent":
+        from agents.insight_agent import run_insight_agent
+        base_state.update(run_insight_agent(base_state))
+
+    result = fn(base_state)
+    base_state.update(result)
+
+    # Return a clean JSON-safe view (omit raw data rows for brevity)
+    return {
+        "agent": body.agent,
+        "dataset_id": dataset.id,
+        "table_name": dataset.table_name,
+        "agent_logs": base_state.get("agent_logs", []),
+        "errors": base_state.get("errors", []),
+        "schema_info": base_state.get("schema_info", {}),
+        "hypotheses_count": len(base_state.get("hypotheses", [])),
+        "sql_results_count": len(base_state.get("sql_results", [])),
+        "insights_count": len(base_state.get("insights", [])),
+        "insights_preview": [
+            {
+                "id": i["id"],
+                "type": i["type"],
+                "title": i["title"],
+                "severity": i["severity"],
+                "narrative_snippet": i.get("narrative", "")[:200],
+            }
+            for i in base_state.get("insights", [])
+        ],
+    }
+
+
 @router.get(
     "/{run_id}",
     response_model=RunDetailResponse,
@@ -245,90 +373,3 @@ def get_run_insights(
         .all()
     )
     return [_serialize_insight(i) for i in insights]
-
-
-@router.post(
-    "/test-agent",
-    summary="[Dev] Invoke a single agent in isolation for debugging.",
-    include_in_schema=True,
-)
-def test_agent(
-    body: TestAgentRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """
-    Run one agent against a dataset and return its raw state delta.
-    Useful for iterating on agent prompts before wiring the full pipeline.
-    """
-    dataset = (
-        db.query(Dataset)
-        .filter(Dataset.id == body.dataset_id, Dataset.user_id == current_user.id)
-        .first()
-    )
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found.")
-    if not dataset.table_name:
-        raise HTTPException(status_code=400, detail="Dataset has no data table.")
-
-    base_state: Dict[str, Any] = {
-        "run_id": "test",
-        "dataset_id": dataset.id,
-        "user_id": current_user.id,
-        "table_name": dataset.table_name,
-        "schema_info": {},
-        "hypotheses": [],
-        "kpi_candidates": [],
-        "sql_results": [],
-        "insights": [],
-        "agent_logs": [],
-        "errors": [],
-    }
-
-    agent_map = {
-        "schema_agent": "agents.schema_agent.run_schema_agent",
-        "sql_agent":    "agents.sql_agent.run_sql_agent",
-        "insight_agent":"agents.insight_agent.run_insight_agent",
-        "viz_agent":    "agents.viz_agent.run_viz_agent",
-    }
-
-    if body.agent not in agent_map:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown agent '{body.agent}'. Valid: {list(agent_map)}",
-        )
-
-    import importlib
-    module_path, fn_name = agent_map[body.agent].rsplit(".", 1)
-    mod = importlib.import_module(module_path)
-    fn = getattr(mod, fn_name)
-
-    # For agents beyond schema_agent we need upstream outputs
-    if body.agent in ("sql_agent", "insight_agent", "viz_agent"):
-        from agents.schema_agent import run_schema_agent
-        base_state.update(run_schema_agent(base_state))
-    if body.agent in ("insight_agent", "viz_agent"):
-        from agents.sql_agent import run_sql_agent
-        base_state.update(run_sql_agent(base_state))
-    if body.agent == "viz_agent":
-        from agents.insight_agent import run_insight_agent
-        base_state.update(run_insight_agent(base_state))
-
-    result = fn(base_state)
-    # Merge for response
-    base_state.update(result)
-
-    # Return a clean JSON-safe view (strip raw data rows for brevity)
-    return {
-        "agent": body.agent,
-        "agent_logs": base_state.get("agent_logs", []),
-        "errors": base_state.get("errors", []),
-        "schema_info": base_state.get("schema_info", {}),
-        "hypotheses_count": len(base_state.get("hypotheses", [])),
-        "sql_results_count": len(base_state.get("sql_results", [])),
-        "insights_count": len(base_state.get("insights", [])),
-        "insights_preview": [
-            {"id": i["id"], "type": i["type"], "title": i["title"], "severity": i["severity"]}
-            for i in base_state.get("insights", [])
-        ],
-    }
