@@ -37,8 +37,7 @@ export default function Home() {
   const heroRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
+  const [errorToast, setErrorToast] = useState<string | null>(null);
   const pollFailures = useRef(0);
 
   // ── Cleanup poll on unmount ──────────────────────────────────────────
@@ -116,12 +115,13 @@ export default function Home() {
             setRunError("The analysis pipeline encountered an error. Check the agent logs above for details.");
             setIsProcessing(false);
           }
-        } catch {
+        } catch (err) {
           pollFailures.current += 1;
           if (pollFailures.current >= 3) {
-            // Backend unreachable after 3 retries → graceful fallback
+            // Backend unreachable after 3 retries → show error
             clearInterval(pollRef.current!);
-            startFallbackSimulation();
+            setErrorToast(err instanceof Error ? err.message : "Lost connection to the analysis server.");
+            setIsProcessing(false);
           }
         }
       }, 3_000);
@@ -140,7 +140,7 @@ export default function Home() {
         setDatasetId(result.id);
         setSchemaPreview(result.schema_preview);
       } catch (err) {
-        setUploadError(
+        setErrorToast(
           err instanceof Error ? err.message : "Upload failed — is the backend running on port 8000?"
         );
       }
@@ -160,7 +160,7 @@ export default function Home() {
         setDatasetId(result.id);
         setSchemaPreview(result.schema_preview);
       } catch (err) {
-        setUploadError(
+        setErrorToast(
           err instanceof Error ? err.message : "Upload failed — is the backend running on port 8000?"
         );
       }
@@ -183,9 +183,10 @@ export default function Home() {
       setRunId(run.id);
       setRunStatus(run.status);
       startPolling(run.id);
-    } catch {
-      // Backend unreachable after upload — fall back
-      startFallbackSimulation();
+    } catch (err) {
+      // Backend unreachable after upload
+      setErrorToast(err instanceof Error ? err.message : "Failed to trigger analysis run.");
+      setIsProcessing(false);
     }
   }, [
     animateHeroOut,
@@ -196,26 +197,65 @@ export default function Home() {
     setRunStatus,
   ]);
 
+  // ── Global Error Toast ───────────────────────────────────────────────
+  const renderErrorToast = () => {
+    if (!errorToast) return null;
+    return (
+      <div className="fixed top-10 left-1/2 -translate-x-1/2 bg-white/5 backdrop-blur-md border border-red-500/20 px-6 py-3 rounded-2xl z-50 shadow-2xl flex items-center gap-4">
+        <p className="text-red-400 font-inter text-sm whitespace-pre-line text-center">{errorToast}</p>
+        <button onClick={() => setErrorToast(null)} className="text-gray-400 hover:text-white transition-colors">✕</button>
+      </div>
+    );
+  };
+
   // ── Dashboard view ───────────────────────────────────────────────────
   if (isDashboard) {
     return (
-      <div className="min-h-[calc(100vh-1rem)] w-full flex flex-col relative z-20 pt-8 max-w-[1400px] mx-auto px-4 lg:pr-[35%]">
+      <div
+        className="min-h-[calc(100vh-1rem)] w-full flex flex-col relative z-20 pt-8 max-w-[1400px] mx-auto px-4 lg:pr-[35%]"
+        data-print-content
+      >
+        {renderErrorToast()}
+
+        {/* Dashboard header with Download Report button */}
+        <div className="flex items-center justify-between mb-6 print-hide">
+          <h1 className="text-2xl font-bold font-space-grotesk text-white drop-shadow-[0_0_10px_rgba(6,182,212,0.3)]">
+            InsightPilot Dashboard
+          </h1>
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-5 py-2 rounded-2xl font-space-grotesk font-semibold text-sm text-cyan-500 bg-white/5 backdrop-blur-lg border border-white/10 hover:bg-white/10 hover:border-cyan-400/40 hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] transition-all"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Download Report
+          </button>
+        </div>
+
         <KPIBar />
         <div className="w-full mt-10 pb-32">
           <h2 className="text-xl font-space-grotesk text-white mb-6 font-semibold drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
             Active Insights
           </h2>
           {insights.length === 0 ? (
-            <p className="text-gray-400 font-inter text-sm">
-              No insights were generated for this dataset. Try uploading a dataset with more historical data or numeric metrics.
-            </p>
+            <div className="w-full bg-white/5 backdrop-blur-md border border-white/10 p-8 rounded-3xl flex flex-col items-center justify-center text-center">
+              <h3 className="text-xl font-space-grotesk font-semibold text-white mb-2">No Insights Found</h3>
+              <p className="text-gray-400 font-inter text-sm max-w-md">
+                No insights generated yet. Try uploading a larger dataset.
+              </p>
+            </div>
           ) : (
             insights.map((insight, i) => (
               <StoryCard key={insight.id} insight={insight} index={i} />
             ))
           )}
         </div>
-        <CopilotChat />
+        <div data-print-hide>
+          <CopilotChat />
+        </div>
       </div>
     );
   }
@@ -224,20 +264,6 @@ export default function Home() {
   const ctaLabel = datasetId ? "Analyze Dataset" : "Simulate Analysis";
   const hasSchema = schemaPreview !== null;
 
-  // ── Pipeline error view ──────────────────────────────────────────────
-  if (runError) {
-    return (
-      <div className="flex min-h-[calc(100vh-1rem)] flex-col items-center justify-center px-4 gap-6">
-        <p className="text-red-400 font-inter text-center max-w-lg">{runError}</p>
-        <button
-          onClick={() => { setRunError(null); setIsProcessing(false); }}
-          className="px-8 py-3 rounded-2xl font-space-grotesk font-semibold text-sm text-cyan-500 bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
-        >
-          Try Again
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-[calc(100vh-1rem)] flex-col items-center justify-center px-4 relative">
@@ -297,12 +323,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* Upload error banner */}
-        {uploadError && (
-          <p className="mt-4 text-sm text-red-400 font-inter text-center max-w-xl px-2">
-            ⚠ {uploadError}
-          </p>
-        )}
 
         {/* CTA Button */}
         <button
