@@ -240,8 +240,9 @@ def run_insight_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         "insight_agent", "completed", t.elapsed_ms,
         details={"insights_generated": len(insights)},
     )
+    # Hard-cap at 5 insights to limit downstream narrative API calls
     return {
-        "insights": insights,
+        "insights": insights[:5],
         "agent_logs": [log],
         "errors": [],
     }

@@ -126,7 +126,7 @@ export default function Home() {
             setIsProcessing(false);
           }
         }
-      }, 3_000);
+      }, 6_000);
     },
     [setAgentLogs, setRunStatus, setInsights, setKPIs, setIsDashboard, setIsProcessing]
   );

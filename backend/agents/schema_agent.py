@@ -207,7 +207,7 @@ def _build_hypotheses(schema_info: Dict, table_name: str) -> List[Dict]:
                 "kpi_column": metric, "date_column": date_col, "dimension_column": None,
             }); h += 1
 
-    return hypotheses
+    return hypotheses[:6]  # Hard-cap: limits downstream SQL + narrative API calls
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +223,7 @@ def run_schema_agent(state: Dict[str, Any]) -> Dict[str, Any]:
                 settings.database_url, connect_args={"check_same_thread": False}
             )
             with engine.connect() as conn:
-                df = pd.read_sql(f'SELECT * FROM "{table_name}" LIMIT 200', conn)
+                df = pd.read_sql(f'SELECT * FROM "{table_name}" LIMIT 50', conn)
 
             col_summary = _summarise_columns(df)
 
@@ -260,7 +260,7 @@ def run_schema_agent(state: Dict[str, Any]) -> Dict[str, Any]:
             return {
                 "schema_info": schema_info,
                 "hypotheses": hypotheses,
-                "kpi_candidates": schema_info.get("kpi_candidates", []),
+                "kpi_candidates": schema_info.get("kpi_candidates", [])[:3],  # cap to 3
                 "agent_logs": state.get("agent_logs", []) + [log],
                 "errors": state.get("errors", []),
             }
