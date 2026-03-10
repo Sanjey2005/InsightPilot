@@ -264,7 +264,21 @@ export default function Home() {
 
 
   return (
-    <div className="flex min-h-[calc(100vh-1rem)] flex-col items-center justify-center px-4 relative">
+    <div className="flex min-h-[calc(100vh-1rem)] flex-col items-center justify-center px-4 relative overflow-hidden">
+      
+      {/* ── Dynamic Particle Background ── */}
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        {/* Deep background glow */}
+        <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[120px] mix-blend-screen animate-pulse duration-[8000ms]" />
+        <div className="absolute bottom-1/4 right-1/4 w-[600px] h-[600px] bg-purple-500/10 rounded-full blur-[150px] mix-blend-screen animate-pulse duration-[10000ms]" />
+        
+        {/* Floating Stars / Particles */}
+        <div className="absolute top-[15%] left-[10%] w-1.5 h-1.5 bg-cyan-400 rounded-full shadow-[0_0_15px_#22d3ee] animate-[ping_3s_ease-in-out_infinite]" />
+        <div className="absolute top-[45%] right-[20%] w-1 h-1 bg-purple-400 rounded-full shadow-[0_0_10px_#a855f7] animate-[ping_4s_ease-in-out_infinite_1s]" />
+        <div className="absolute bottom-[25%] left-[30%] w-2 h-2 bg-blue-400 rounded-full shadow-[0_0_20px_#60a5fa] animate-[ping_5s_ease-in-out_infinite_2s]" />
+        <div className="absolute top-[60%] left-[80%] w-1.5 h-1.5 bg-cyan-300 rounded-full shadow-[0_0_15px_#67e8f9] animate-[ping_3.5s_ease-in-out_infinite_0.5s]" />
+      </div>
+
       {/* Hidden file input */}
       <input
         ref={fileInputRef}

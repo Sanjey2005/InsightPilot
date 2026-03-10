@@ -61,9 +61,13 @@ export default function AgentStepper() {
 
       <div className="flex flex-col gap-6">
         {AGENTS.map((agent, i) => {
-          const isDone = completedKeys.has(agent.key);
+          // Strict waterfall logic:
+          // A step is done ONLY if it's in completedKeys AND all previous steps are in completedKeys.
+          // This prevents later steps showing as done if polling missed an intermediate step.
+          const isDone = completedKeys.has(agent.key) && (i === 0 || completedKeys.has(AGENTS[i - 1].key));
           const isActive =
-            !isDone && (i === 0 || completedKeys.has(AGENTS[i - 1].key));
+            !isDone && (i === 0 || (completedKeys.has(AGENTS[i - 1].key) && (i === 1 || completedKeys.has(AGENTS[i - 2].key))));
+
 
           return (
             <div
