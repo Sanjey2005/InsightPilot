@@ -133,6 +133,11 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
     }
   };
 
+  // FIX (issue #3): height must be a number, not "100%".
+  // ResponsiveContainer with height="100%" reads the parent's computed height via
+  // ResizeObserver. In React 19 concurrent mode the observer fires before the
+  // browser has committed the Tailwind h-64 class, so height resolves to 0 and
+  // Recharts never renders its SVG. Passing height={240} bypasses measurement.
   const chart = renderChart();
 
   return (
