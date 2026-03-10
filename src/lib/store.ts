@@ -1,3 +1,8 @@
+// SELECTOR RULE (fixes issue #6):
+// Always use one useAppStore call per value:
+//   const foo = useAppStore((s) => s.foo);
+// Never use an inline object selector — (s) => ({ a: s.a, b: s.b }) creates a
+// new reference every render and triggers an infinite loop via useSyncExternalStore.
 import { create } from "zustand";
 import type {
   AgentLog,
