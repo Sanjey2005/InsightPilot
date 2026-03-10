@@ -67,7 +67,7 @@ export default function KPIBar() {
   return (
     <div
       ref={containerRef}
-      className="w-full grid grid-cols-2 lg:grid-cols-4 gap-3 z-20 relative opacity-0"
+      className="w-full flex flex-wrap gap-3 z-20 relative opacity-0"
     >
       {kpis.map((kpi, index) => {
         const { prefix, suffix } = getFormatting(kpi.name);
@@ -77,7 +77,7 @@ export default function KPIBar() {
           <div
             key={kpi.id}
             data-print-kpi
-            className="bg-white/5 backdrop-blur-md border border-white/10 p-4 rounded-2xl flex flex-col gap-2 relative overflow-hidden group min-w-0"
+            className="flex-1 min-w-[200px] bg-white/5 backdrop-blur-md border border-white/10 p-4 rounded-2xl flex flex-col gap-2 relative overflow-hidden group"
           >
             <div className="absolute -inset-2 bg-gradient-to-r from-cyan-500/0 via-cyan-500/5 to-purple-500/0 opacity-0 group-hover:opacity-100 blur-xl transition-opacity duration-500" />
 
@@ -92,8 +92,8 @@ export default function KPIBar() {
 
             <span
               className={`font-inter text-xs font-semibold px-2 py-1 rounded-md w-fit z-10 ${isPositive
-                  ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.1)]"
-                  : "bg-red-500/10 text-red-400 border border-red-500/20"
+                ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.1)]"
+                : "bg-red-500/10 text-red-400 border border-red-500/20"
                 }`}
             >
               {deltaLabel}

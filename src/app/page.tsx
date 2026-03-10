@@ -15,6 +15,7 @@ import {
   fallbackInsights,
   fallbackKPIs,
 } from "@/lib/api";
+import { ArrowLeft, RefreshCw } from "lucide-react";
 
 export default function Home() {
   const {
@@ -32,6 +33,8 @@ export default function Home() {
     setInsights,
     setKPIs,
     setSchemaPreview,
+    setUploadError,
+    setRunError,
   } = useAppStore();
 
   const heroRef = useRef<HTMLDivElement>(null);
@@ -92,6 +95,38 @@ export default function Home() {
       setTimeout(() => setIsDashboard(true), 1_200);
     }, FAKE_AGENTS.length * 2_200 + 800);
   }, [setAgentLogs, setRunStatus, setInsights, setKPIs, setIsDashboard]);
+
+  // ── Reset to Upload State ────────────────────────────────────────────
+  const handleReset = useCallback(() => {
+    setIsDashboard(false);
+    setIsProcessing(false);
+    setDatasetId(null);
+    setRunId(null);
+    setRunStatus("idle");
+    setAgentLogs([]);
+    setInsights([]);
+    setKPIs([]);
+    setSchemaPreview(null);
+    setUploadError(null);
+    setRunError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
+    // Animate hero back in
+    if (heroRef.current) {
+      heroRef.current.style.display = "flex";
+      gsap.fromTo(
+        heroRef.current,
+        { opacity: 0, y: -50, scale: 0.95 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.8, ease: "power3.out" }
+      );
+    }
+  }, [
+    setIsDashboard, setIsProcessing, setDatasetId, setRunId,
+    setRunStatus, setAgentLogs, setInsights, setKPIs, setSchemaPreview,
+    setUploadError, setRunError
+  ]);
 
   // ── Live polling ─────────────────────────────────────────────────────  
   const startPolling = useCallback(
@@ -237,9 +272,18 @@ export default function Home() {
 
         <KPIBar />
         <div className="w-full mt-10 pb-32">
-          <h2 className="text-xl font-space-grotesk text-white mb-6 font-semibold drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
-            Active Insights
-          </h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-space-grotesk text-white font-semibold drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
+              Active Insights
+            </h2>
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl font-inter font-medium text-xs text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all print-hide"
+            >
+              <RefreshCw className="w-4 h-4" />
+              New Analysis
+            </button>
+          </div>
           {insights.length === 0 ? (
             <div className="w-full bg-white/5 backdrop-blur-md border border-white/10 p-8 rounded-3xl flex flex-col items-center justify-center text-center">
               <h3 className="text-xl font-space-grotesk font-semibold text-white mb-2">No Insights Found</h3>
@@ -256,6 +300,15 @@ export default function Home() {
         <div data-print-hide>
           <CopilotChat />
         </div>
+
+        {/* Back to Upload Floating Button */}
+        <button
+          onClick={handleReset}
+          className="fixed bottom-6 left-6 z-50 flex items-center gap-2 px-5 py-3 rounded-full font-space-grotesk font-semibold text-sm text-gray-300 bg-[#0f1115]/80 backdrop-blur-xl border border-white/10 shadow-2xl hover:text-white hover:border-white/30 hover:bg-white/5 transition-all print-hide group"
+        >
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+          Back to Upload
+        </button>
       </div>
     );
   }
