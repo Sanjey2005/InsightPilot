@@ -11,53 +11,116 @@
   }
 }
 
-/* ── Print layout for "Download Report" (Issue #7) ──────────────────────────
-   Hides 3D canvas and chat panel; renders a clean white report with all
-   KPI tiles, insight titles, narratives, and charts.                        */
+/* ── Print layout for "Download Report" ──────────────────────────────────────
+   Renders a clean, professional white PDF with all KPIs, insights, and charts.
+   Hides 3D canvas, navbar, chat panel, and all interactive UI elements.        */
 @media print {
-  /* White background — remove glassmorphic transparency */
-  body {
-    background-color: #ffffff !important;
-    color: #111111 !important;
+  /* ── Page setup ── */
+  @page {
+    margin: 1.8cm 1.5cm;
+    size: A4 portrait;
   }
 
-  /* Hide: 3D canvas, chat panel, feedback buttons, print button itself,
-     the Three.js canvas wrapper, and browser nav chrome                    */
+  /* ── White background and readable text ── */
+  html, body {
+    background-color: #ffffff !important;
+    background-image: none !important;
+    color: #111111 !important;
+    font-size: 12pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ── Show the print-only header ── */
+  .print-only-block {
+    display: block !important;
+  }
+
+  /* ── Hidden elements ── */
   canvas,
   [data-print-hide],
-  .print-hide {
+  .print-hide,
+  nav,
+  [data-radix-popper-content-wrapper] {
     display: none !important;
   }
 
-  /* Make the main content full-width (no right padding for chat) */
+  /* ── Main layout: full width, no chat padding ── */
   [data-print-content] {
     max-width: 100% !important;
     padding-right: 0 !important;
+    padding-left: 0 !important;
     margin: 0 !important;
+    padding-top: 0 !important;
   }
 
-  /* KPI tiles: force light background */
+  /* ── Remove the particle background from the main tag ── */
+  main {
+    padding-top: 0 !important;
+    background: white !important;
+  }
+
+  /* ── KPI bar: horizontal flex instead of grid to fit on one row ── */
+  .w-full.grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 0.5rem !important;
+  }
+
+  /* ── KPI tiles ── */
   [data-print-kpi] {
     background-color: #f3f4f6 !important;
     border: 1px solid #d1d5db !important;
     color: #111111 !important;
     break-inside: avoid;
+    flex: 1 1 22%;
+    border-radius: 8px !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
   }
 
-  /* Story cards: force light background, prevent page break mid-card */
+  /* Fix KPI value colour */
+  [data-print-kpi] span,
+  [data-print-kpi] h3 {
+    color: #111111 !important;
+  }
+
+  /* Fix delta badge */
+  [data-print-kpi] span[class*="bg-cyan"],
+  [data-print-kpi] span[class*="bg-red"] {
+    background-color: #e5e7eb !important;
+    border-color: #9ca3af !important;
+    color: #374151 !important;
+    box-shadow: none !important;
+  }
+
+  /* ── Section headers ── */
+  h2.text-xl {
+    color: #111111 !important;
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  /* ── Story / insight cards ── */
   [data-print-card] {
     background-color: #f9fafb !important;
-    border: 1px solid #e5e7eb !important;
+    border: 1px solid #d1d5db !important;
     color: #111111 !important;
     break-inside: avoid;
     page-break-inside: avoid;
     margin-bottom: 1.5rem;
     opacity: 1 !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+    border-radius: 8px !important;
   }
 
-  /* Ensure text colours are readable on white */
+  /* Make all text in cards readable on white */
   [data-print-card] h2,
-  [data-print-card] p {
+  [data-print-card] h3,
+  [data-print-card] p,
+  [data-print-card] span {
     color: #111111 !important;
   }
 
@@ -65,13 +128,31 @@
     color: #4b5563 !important;
   }
 
-  /* Charts: ensure SVG fills width */
+  /* Insight type badge */
+  [data-print-card] span[class*="bg-"] {
+    background-color: #e5e7eb !important;
+    border-color: #9ca3af !important;
+    color: #374151 !important;
+  }
+
+  /* ── Recharts SVG ── */
   [data-print-card] svg {
     max-width: 100%;
   }
 
-  /* Page margins */
-  @page {
-    margin: 1.5cm;
+  /* Turn transparent chart gridlines/axes visible on white */
+  [data-print-card] .recharts-cartesian-grid-horizontal line,
+  [data-print-card] .recharts-cartesian-grid-vertical line {
+    stroke: #d1d5db !important;
+  }
+
+  [data-print-card] .recharts-text {
+    fill: #374151 !important;
+  }
+
+  /* ── Paragraph bottom spacing ── */
+  .pb-32 {
+    padding-bottom: 2rem !important;
   }
 }
+

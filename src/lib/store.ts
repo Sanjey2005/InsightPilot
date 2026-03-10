@@ -15,6 +15,7 @@ interface AppState {
   // ── Phase flags ────────────────────────────────────────────────────
   isProcessing: boolean;
   isDashboard: boolean;
+  isSimulated: boolean; // true when fallback mock data is shown
 
   // ── Upload / run IDs ───────────────────────────────────────────────
   datasetId: string | null;
@@ -43,6 +44,7 @@ interface AppState {
   setInsights: (insights: InsightResponse[]) => void;
   setKPIs: (kpis: KPIResponse[]) => void;
   setSuggestions: (suggestions: string[]) => void;
+  setIsSimulated: (val: boolean) => void;
   setUploadError: (val: string | null) => void;
   setRunError: (val: string | null) => void;
 }
@@ -50,6 +52,7 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   isProcessing: false,
   isDashboard: false,
+  isSimulated: false,
   datasetId: null,
   runId: null,
   runStatus: "idle",
@@ -69,6 +72,7 @@ export const useAppStore = create<AppState>((set) => ({
   setInsights: (insights) => set({ insights }),
   setKPIs: (kpis) => set({ kpis }),
   setSuggestions: (suggestions) => set({ suggestions }),
+  setIsSimulated: (isSimulated) => set({ isSimulated }),
   setUploadError: () => { }, // No longer used in state, kept for compat
   setRunError: () => { }, // No longer used in state, kept for compat
 }));

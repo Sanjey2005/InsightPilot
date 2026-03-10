@@ -32,6 +32,7 @@ export default function Home() {
     setInsights,
     setKPIs,
     setSchemaPreview,
+    setIsSimulated,
   } = useAppStore();
 
   const heroRef = useRef<HTMLDivElement>(null);
@@ -65,6 +66,7 @@ export default function Home() {
 
   // ── Fallback simulation (API unreachable) ────────────────────────────
   const startFallbackSimulation = useCallback(() => {
+    setIsSimulated(true);
     const FAKE_AGENTS = [
       "schema_agent",
       "sql_agent",
@@ -180,6 +182,7 @@ export default function Home() {
       const run = await triggerRun(datasetId);
       setRunId(run.id);
       setRunStatus(run.status);
+      setIsSimulated(false);
       startPolling(run.id);
     } catch (err) {
       // Backend unreachable after upload
@@ -193,6 +196,7 @@ export default function Home() {
     startPolling,
     setRunId,
     setRunStatus,
+    setIsSimulated,
   ]);
 
   // ── Global Error Toast ───────────────────────────────────────────────
@@ -221,8 +225,15 @@ export default function Home() {
             InsightPilot Dashboard
           </h1>
           <button
-            onClick={() => window.print()}
-            className="flex items-center gap-2 px-5 py-2 rounded-2xl font-space-grotesk font-semibold text-sm text-cyan-500 bg-white/5 backdrop-blur-lg border border-white/10 hover:bg-white/10 hover:border-cyan-400/40 hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] transition-all"
+            onClick={() => {
+              const original = document.title;
+              const datasetName = schemaPreview?.table_name ?? "InsightPilot";
+              const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+              document.title = `InsightPilot Report — ${datasetName} — ${date}`;
+              window.print();
+              setTimeout(() => { document.title = original; }, 1000);
+            }}
+            className="flex items-center gap-2 px-5 py-2 rounded-2xl font-space-grotesk font-semibold text-sm text-cyan-500 bg-white/5 backdrop-blur-lg border border-white/10 hover:bg-white/10 hover:border-cyan-400/40 hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] transition-all print-hide"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
