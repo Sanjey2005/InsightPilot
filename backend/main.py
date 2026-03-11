@@ -34,9 +34,17 @@ app = FastAPI(
     version="0.3.0",
 )
 
+# Always include known deployment origins so a misconfigured env var on Render
+# cannot accidentally block the production frontend.
+_ALWAYS_ALLOWED = [
+    "https://insightspilot.vercel.app",
+    "http://localhost:3000",
+]
+_cors_origins = list(set(settings.cors_origins + _ALWAYS_ALLOWED))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
