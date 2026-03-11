@@ -50,6 +50,10 @@ app.include_router(chat.router,     prefix="/chat",      tags=["chat"])
 
 
 # ── Health check ──────────────────────────────────────────────────────────
+@app.get("/")
+def root():
+    return {"status": "ok"}
+
 @app.get("/health", tags=["meta"])
 def health():
     return {"status": "ok", "version": "0.3.0"}
