@@ -32,6 +32,7 @@ export default function KPIBar() {
   const numsRef = useRef<(HTMLSpanElement | null)[]>([]);
 
   const kpis: KPIResponse[] = storeKpis;
+  console.log("KPIBar render:", { isDashboard, kpiCount: kpis.length, kpis });
 
   useGSAP(() => {
     if (!isDashboard || numsRef.current.length === 0) return;

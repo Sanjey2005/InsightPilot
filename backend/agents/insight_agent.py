@@ -23,7 +23,7 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 # Minimum data-points in a time series before anomaly detection runs
-_MIN_ANOMALY_POINTS = 10
+_MIN_ANOMALY_POINTS = 6
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -240,9 +240,9 @@ def run_insight_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         "insight_agent", "completed", t.elapsed_ms,
         details={"insights_generated": len(insights)},
     )
-    # Hard-cap at 5 insights to limit downstream narrative API calls
+    # Hard-cap at 8 insights to cover all types with good variety
     return {
-        "insights": insights[:5],
+        "insights": insights[:8],
         "agent_logs": [log],
         "errors": [],
     }

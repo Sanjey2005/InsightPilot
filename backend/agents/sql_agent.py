@@ -84,9 +84,10 @@ WHERE "{date_col}" IS NOT NULL GROUP BY period ORDER BY period
 - segment_breakdown: SELECT "{dim_col}", {agg}("{kpi_col}") AS value \
 FROM "{table_name}" WHERE "{kpi_col}" IS NOT NULL \
 GROUP BY "{dim_col}" ORDER BY value DESC LIMIT 10
-- anomaly         : SELECT "{date_col}", "{kpi_col}" \
-FROM "{table_name}" WHERE "{kpi_col}" IS NOT NULL AND "{date_col}" IS NOT NULL \
-ORDER BY "{date_col}" LIMIT 1000
+- anomaly         : SELECT strftime('%Y-%m', "{date_col}") AS period, \
+SUM("{kpi_col}") AS "{kpi_col}" FROM "{table_name}" \
+WHERE "{kpi_col}" IS NOT NULL AND "{date_col}" IS NOT NULL \
+GROUP BY period ORDER BY period
 
 Rules:
 - Output ONLY the raw SQL query — no explanation, no markdown, no code fences.
@@ -107,8 +108,67 @@ def _pick_agg(kpi_col: str, classifications: Dict[str, str]) -> str:
     return "COUNT"
 
 
+def _build_deterministic_sql(hyp: Dict, schema_info: Dict, table_name: str) -> Optional[str]:
+    """
+    Build a guaranteed-correct SQL query without calling the LLM.
+    Returns None if the hypothesis type has no deterministic template.
+    These are exact equivalents of the LLM guidelines but 100% reliable.
+    """
+    kpi_col  = hyp.get("kpi_column", "")
+    date_col = hyp.get("date_column") or "date"
+    dim_col  = hyp.get("dimension_column") or "category"
+    hyp_type = hyp.get("type", "")
+    classifications = schema_info.get("classifications", {})
+    agg = _pick_agg(kpi_col, classifications)
+
+    if not kpi_col:
+        return None
+
+    tn = table_name  # shorthand
+    k  = kpi_col
+    d  = date_col
+
+    if hyp_type == "mom_trend":
+        return (
+            f'SELECT strftime(\'%Y-%m\', "{d}") AS period, '
+            f'{agg}("{k}") AS value FROM "{tn}" '
+            f'WHERE "{d}" IS NOT NULL GROUP BY period ORDER BY period'
+        )
+    if hyp_type == "wow_trend":
+        return (
+            f'SELECT strftime(\'%Y-%W\', "{d}") AS period, '
+            f'{agg}("{k}") AS value FROM "{tn}" '
+            f'WHERE "{d}" IS NOT NULL GROUP BY period ORDER BY period'
+        )
+    if hyp_type == "segment_breakdown":
+        return (
+            f'SELECT "{dim_col}", {agg}("{k}") AS value FROM "{tn}" '
+            f'WHERE "{k}" IS NOT NULL '
+            f'GROUP BY "{dim_col}" ORDER BY value DESC LIMIT 10'
+        )
+    if hyp_type == "anomaly":
+        # Aggregate by month so z-score is computed on monthly totals,
+        # not on per-row values diluted by multiple channels/segments.
+        return (
+            f'SELECT strftime(\'%Y-%m\', "{d}") AS period, '
+            f'SUM("{k}") AS "{k}" FROM "{tn}" '
+            f'WHERE "{k}" IS NOT NULL AND "{d}" IS NOT NULL '
+            f'GROUP BY period ORDER BY period'
+        )
+    return None
+
+
 def _generate_sql(hyp: Dict, schema_info: Dict, table_name: str) -> str:
-    """Call Gemini 1.5 Flash to generate SQL for one hypothesis."""
+    """
+    Return SQL for a hypothesis.
+    Always tries the deterministic builder first — falls back to LLM only
+    when the type has no fixed template (future extensibility).
+    """
+    det = _build_deterministic_sql(hyp, schema_info, table_name)
+    if det:
+        return det
+
+    # LLM fallback (for unknown types or custom descriptions)
     classifications = schema_info.get("classifications", {})
     columns = list(classifications.keys()) or ["*"]
     kpi_col = hyp.get("kpi_column", "")

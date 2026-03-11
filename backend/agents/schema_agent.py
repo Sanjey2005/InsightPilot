@@ -165,11 +165,13 @@ def _heuristic_classify_columns(df: pd.DataFrame) -> Dict:
 
 def _build_hypotheses(schema_info: Dict, table_name: str) -> List[Dict]:
     """
-    Convert schema classifications into the fixed insight-playbook hypotheses:
-      - MoM trend     per metric column (if date col exists)
-      - WoW trend     per metric column (if date col exists)
-      - Segment       per (dimension × metric) pair (top 3 × top 2)
-      - Anomaly       per metric column over time (if date col exists)
+    Build a BALANCED set of hypotheses so all insight types are represented.
+
+    Allocation (cap = 8):
+      - 1 MoM trend        (primary metric)
+      - up to 2 segments   (each dimension × primary metric)
+      - up to 2 anomalies  (top 2 metrics)
+      - up to 3 WoW trends (filling remaining slots)
     """
     date_col = schema_info.get("date_column")
     metric_cols: List[str] = schema_info.get("metric_columns", [])[:3]
@@ -178,36 +180,45 @@ def _build_hypotheses(schema_info: Dict, table_name: str) -> List[Dict]:
     hypotheses: List[Dict] = []
     h = 0
 
-    if date_col:
-        for metric in metric_cols:
-            hypotheses.append({
-                "id": f"h{h}", "type": "mom_trend",
-                "description": f"Month-over-month trend for {metric}",
-                "kpi_column": metric, "date_column": date_col, "dimension_column": None,
-            }); h += 1
-            hypotheses.append({
-                "id": f"h{h}", "type": "wow_trend",
-                "description": f"Week-over-week trend for {metric}",
-                "kpi_column": metric, "date_column": date_col, "dimension_column": None,
-            }); h += 1
+    # ── 1. One MoM trend for the primary metric ──────────────────────────
+    if date_col and metric_cols:
+        primary_metric = metric_cols[0]
+        hypotheses.append({
+            "id": f"h{h}", "type": "mom_trend",
+            "description": f"Month-over-month trend for {primary_metric}",
+            "kpi_column": primary_metric, "date_column": date_col, "dimension_column": None,
+        }); h += 1
 
-    for dim in dimension_cols:
-        for metric in metric_cols[:2]:
+    # ── 2. Segment breakdowns (up to 2) ──────────────────────────────────
+    for dim in dimension_cols[:2]:
+        if metric_cols:
             hypotheses.append({
                 "id": f"h{h}", "type": "segment_breakdown",
-                "description": f"Top segments of {metric} by {dim}",
-                "kpi_column": metric, "date_column": date_col, "dimension_column": dim,
+                "description": f"Top segments of {metric_cols[0]} by {dim}",
+                "kpi_column": metric_cols[0], "date_column": date_col, "dimension_column": dim,
             }); h += 1
 
+    # ── 3. Anomaly detection (up to 2 metrics) ───────────────────────────
     if date_col:
-        for metric in metric_cols:
+        for metric in metric_cols[:2]:
             hypotheses.append({
                 "id": f"h{h}", "type": "anomaly",
                 "description": f"Anomaly detection for {metric} over time",
                 "kpi_column": metric, "date_column": date_col, "dimension_column": None,
             }); h += 1
 
-    return hypotheses[:6]  # Hard-cap: limits downstream SQL + narrative API calls
+    # ── 4. WoW trends for remaining metrics (fill up to cap of 8) ────────
+    if date_col:
+        for metric in metric_cols:
+            if len(hypotheses) >= 8:
+                break
+            hypotheses.append({
+                "id": f"h{h}", "type": "wow_trend",
+                "description": f"Week-over-week trend for {metric}",
+                "kpi_column": metric, "date_column": date_col, "dimension_column": None,
+            }); h += 1
+
+    return hypotheses[:8]  # Hard-cap at 8 to limit downstream API calls
 
 
 # ---------------------------------------------------------------------------

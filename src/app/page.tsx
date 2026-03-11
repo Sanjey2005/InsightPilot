@@ -286,7 +286,7 @@ export default function Home() {
             
             {/* Filter Pills */}
             <div className="flex flex-wrap items-center gap-3">
-              {["All", "Trends", "Anomalies", "Segments", "KPIs"].map((filter) => (
+              {["All", "Trends", "Anomalies", "Segments"].map((filter) => (
                 <button
                   key={filter}
                   onClick={() => setActiveFilter(filter)}
@@ -302,7 +302,12 @@ export default function Home() {
             </div>
           </div>
 
-          {insights.filter(i => activeFilter === "All" || i.type === activeFilter.toLowerCase().replace(/s$/, '')).length === 0 ? (
+          {insights.filter(i => {
+             if (activeFilter === "All") return true;
+             if (activeFilter === "Anomalies") return i.type === "anomaly";
+             if (activeFilter === "Segments") return i.type === "segment";
+             return i.type === activeFilter.toLowerCase().replace(/s$/, '');
+          }).length === 0 ? (
             <div className="w-full bg-white/5 backdrop-blur-md border border-white/10 p-12 rounded-3xl flex flex-col items-center justify-center text-center group transition-all hover:bg-white/10">
               <div className="w-20 h-20 mb-6 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-500 group-hover:text-cyan-400 group-hover:border-cyan-500/30 transition-colors">
                 <svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -319,7 +324,12 @@ export default function Home() {
             </div>
           ) : (
             insights
-              .filter(i => activeFilter === "All" || i.type === activeFilter.toLowerCase().replace(/s$/, ''))
+              .filter(i => {
+                if (activeFilter === "All") return true;
+                if (activeFilter === "Anomalies") return i.type === "anomaly";
+                if (activeFilter === "Segments") return i.type === "segment";
+                return i.type === activeFilter.toLowerCase().replace(/s$/, '');
+              })
               .map((insight, i) => (
               <StoryCard key={insight.id} insight={insight} index={i} />
             ))
