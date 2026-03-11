@@ -14,7 +14,10 @@ class Settings(BaseSettings):
     database_url: str = _DEFAULT_DB_URL
 
     # CORS
-    cors_origins: List[str] = ["http://localhost:3000"]
+    cors_origins: List[str] = [
+        "http://localhost:3000",
+        "https://insightspilot.vercel.app"
+    ]
 
     # Auth (Supabase)
     supabase_jwt_secret: str = ""
