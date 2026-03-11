@@ -15,12 +15,12 @@ interface AppState {
   // ── Phase flags ────────────────────────────────────────────────────
   isProcessing: boolean;
   isDashboard: boolean;
-  isSimulated: boolean; // true when fallback mock data is shown
+  isSimulated: boolean;
 
   // ── Upload / run IDs ───────────────────────────────────────────────
   datasetId: string | null;
   runId: string | null;
-  runStatus: string; // "idle" | "queued" | "running" | "completed" | "failed"
+  runStatus: string;
 
   // ── Agent pipeline data ────────────────────────────────────────────
   agentLogs: AgentLog[];
@@ -32,6 +32,13 @@ interface AppState {
 
   // ── Chat ───────────────────────────────────────────────────────────
   suggestions: string[];
+
+  // ── 3D Reactivity ──────────────────────────────────────────────────
+  highlightParticles: boolean;
+
+  // ── Layout State ───────────────────────────────────────────────────
+  isChatCollapsed: boolean;
+  chatWidth: number;
 
   // ── Setters ────────────────────────────────────────────────────────
   setIsProcessing: (val: boolean) => void;
@@ -45,11 +52,15 @@ interface AppState {
   setKPIs: (kpis: KPIResponse[]) => void;
   setSuggestions: (suggestions: string[]) => void;
   setIsSimulated: (val: boolean) => void;
+  setHighlightParticles: (val: boolean) => void;
+  setIsChatCollapsed: (val: boolean) => void;
+  setChatWidth: (val: number) => void;
   setUploadError: (val: string | null) => void;
   setRunError: (val: string | null) => void;
+  resetApp: () => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+const defaultState = {
   isProcessing: false,
   isDashboard: false,
   isSimulated: false,
@@ -61,6 +72,13 @@ export const useAppStore = create<AppState>((set) => ({
   insights: [],
   kpis: [],
   suggestions: [],
+  highlightParticles: false,
+  isChatCollapsed: false,
+  chatWidth: 380,
+};
+
+export const useAppStore = create<AppState>((set) => ({
+  ...defaultState,
 
   setIsProcessing: (isProcessing) => set({ isProcessing }),
   setIsDashboard: (isDashboard) => set({ isDashboard }),
@@ -73,6 +91,10 @@ export const useAppStore = create<AppState>((set) => ({
   setKPIs: (kpis) => set({ kpis }),
   setSuggestions: (suggestions) => set({ suggestions }),
   setIsSimulated: (isSimulated) => set({ isSimulated }),
-  setUploadError: () => { }, // No longer used in state, kept for compat
-  setRunError: () => { }, // No longer used in state, kept for compat
+  setHighlightParticles: (highlightParticles) => set({ highlightParticles }),
+  setIsChatCollapsed: (isChatCollapsed) => set({ isChatCollapsed }),
+  setChatWidth: (chatWidth) => set({ chatWidth }),
+  setUploadError: () => { },
+  setRunError: () => { },
+  resetApp: () => set(defaultState),
 }));

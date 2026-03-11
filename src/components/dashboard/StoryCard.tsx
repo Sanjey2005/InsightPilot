@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import type { InsightResponse } from "@/lib/api";
 import { submitFeedback } from "@/lib/api";
+import { useAppStore } from "@/lib/store";
 
 // ── Inline SVG icons (no lucide-react) ─────────────────────────────────────
 const ThumbUpIcon = ({ className }: { className?: string }) => (
@@ -37,7 +38,11 @@ interface StoryCardProps {
 
 export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const thumbUpRef = useRef<HTMLButtonElement>(null);
+  const thumbDownRef = useRef<HTMLButtonElement>(null);
   const [feedbackSignal, setFeedbackSignal] = useState<"thumbs_up" | "thumbs_down" | null>(null);
+  const [feedbackThanks, setFeedbackThanks] = useState(false);
+  const setHighlightParticles = useAppStore((s) => s.setHighlightParticles);
 
   useGSAP(() => {
     gsap.fromTo(
@@ -49,7 +54,7 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
 
   const getTypeColor = (type: string) => {
     switch (type) {
-      case "anomaly": return "bg-red-500/20 text-red-400 border-red-500/30";
+      case "anomaly": return "bg-red-500/20 text-red-300 font-bold border-red-500/40";
       case "trend": return "bg-cyan-500/20 text-cyan-400 border-cyan-500/30";
       case "segment": return "bg-purple-500/20 text-purple-400 border-purple-500/30";
       case "kpi": return "bg-green-500/20 text-green-400 border-green-500/30";
@@ -57,8 +62,25 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
     }
   };
 
-  const handleFeedback = async (signal: "thumbs_up" | "thumbs_down") => {
+  const handleFeedback = async (signal: "thumbs_up" | "thumbs_down", btnRef: React.RefObject<HTMLButtonElement | null>) => {
+    if (feedbackSignal) return; // already voted
     setFeedbackSignal(signal);
+    
+    // GSAP bounce micro-animation on the clicked button
+    if (btnRef.current) {
+      gsap.fromTo(
+        btnRef.current,
+        { scale: 1 },
+        { scale: 1.4, duration: 0.15, ease: "power2.out",
+          onComplete: () => { gsap.to(btnRef.current, { scale: 1, duration: 0.4, ease: "elastic.out(1.2, 0.4)" }); }
+        }
+      );
+    }
+
+    // Show "Thanks!" for 2 seconds
+    setFeedbackThanks(true);
+    setTimeout(() => setFeedbackThanks(false), 2000);
+
     try {
       await submitFeedback(insight.id, signal);
     } catch {
@@ -75,7 +97,7 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
       ? (Object.keys(chartData[0]).find((k) => k !== xKey) ?? "value")
       : "value");
   const color = cfg?.color ?? "#06b6d4";
-  const chartType = cfg?.chart_type ?? (insight.type === "trend" ? "bar" : "line");
+  const chartType = cfg?.chart_type ?? (insight.type === "trend" ? "bar" : "area"); // Default to area instead of line
 
   const axisProps = {
     stroke: "#ffffff50",
@@ -93,6 +115,8 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
     },
   };
 
+  const gradientId = `color-${insight.id}-${index}`;
+
   const renderChart = () => {
     if (!chartData.length) return null;
 
@@ -108,13 +132,20 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
           </BarChart>
         );
       case "area":
+      case "line": // Fallback old lines to area as well
         return (
           <AreaChart data={chartData}>
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={color} stopOpacity={0.4} />
+                <stop offset="95%" stopColor={color} stopOpacity={0} />
+              </linearGradient>
+            </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" vertical={false} />
             <XAxis dataKey={xKey} {...axisProps} />
             <YAxis {...axisProps} />
             <Tooltip {...tooltipStyle} />
-            <Area type="monotone" dataKey={yKey} stroke={color} fill={`${color}33`} strokeWidth={3} />
+            <Area type="monotone" dataKey={yKey} stroke={color} fill={`url(#${gradientId})`} strokeWidth={3} activeDot={{ r: 6, fill: "#fff" }} />
           </AreaChart>
         );
       case "scatter":
@@ -127,23 +158,8 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
             <Scatter data={chartData} fill={color} />
           </ScatterChart>
         );
-      default: // "line"
-        return (
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" vertical={false} />
-            <XAxis dataKey={xKey} {...axisProps} />
-            <YAxis {...axisProps} />
-            <Tooltip {...tooltipStyle} />
-            <Line
-              type="monotone"
-              dataKey={yKey}
-              stroke={color}
-              strokeWidth={3}
-              dot={{ fill: "#000", strokeWidth: 2 }}
-              activeDot={{ r: 6, fill: "#fff" }}
-            />
-          </LineChart>
-        );
+      default:
+        return null;
     }
   };
 
@@ -153,7 +169,9 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
     <div
       ref={cardRef}
       data-print-card
-      className="w-full bg-white/5 backdrop-blur-lg border border-white/10 p-6 rounded-3xl relative overflow-hidden group mb-6 opacity-0"
+      className="w-full bg-white/10 backdrop-blur-lg border border-white/10 p-6 rounded-3xl relative overflow-hidden group mb-6 opacity-0 shadow-lg"
+      onMouseEnter={() => setHighlightParticles(true)}
+      onMouseLeave={() => setHighlightParticles(false)}
     >
       <div className="absolute top-0 right-0 w-64 h-64 bg-cyan-500/5 rounded-full blur-3xl rounded-tl-[100px] pointer-events-none" />
 
@@ -171,20 +189,25 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
         </div>
 
         <div className="flex items-center gap-3 print-hide">
+          {feedbackThanks && (
+            <span className="text-xs font-inter text-cyan-400 animate-pulse">Thanks! ✨</span>
+          )}
           <button
-            onClick={() => handleFeedback("thumbs_up")}
+            ref={thumbUpRef}
+            onClick={() => handleFeedback("thumbs_up", thumbUpRef)}
             className={`p-2 rounded-full transition-colors ${feedbackSignal === "thumbs_up"
                 ? "text-cyan-400 bg-cyan-500/10"
-                : "text-gray-500 hover:text-cyan-400 hover:bg-white/5"
+                : "text-gray-400 hover:text-cyan-400 hover:bg-white/5"
               }`}
           >
             <ThumbUpIcon className="w-5 h-5" />
           </button>
           <button
-            onClick={() => handleFeedback("thumbs_down")}
+            ref={thumbDownRef}
+            onClick={() => handleFeedback("thumbs_down", thumbDownRef)}
             className={`p-2 rounded-full transition-colors ${feedbackSignal === "thumbs_down"
                 ? "text-red-400 bg-red-500/10"
-                : "text-gray-500 hover:text-red-400 hover:bg-white/5"
+                : "text-gray-400 hover:text-red-400 hover:bg-white/5"
               }`}
           >
             <ThumbDownIcon className="w-5 h-5" />

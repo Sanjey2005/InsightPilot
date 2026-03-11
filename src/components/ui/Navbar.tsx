@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useAppStore } from "@/lib/store";
 
-// ── Inline SVG icons (no lucide-react) ─────────────────────────────────────
+// ── Inline SVG icons ───────────────────────────────────────────────────
+
+// ── Inline SVG icons ─────────────────────────────────────────────────────
 const SparklesIcon = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
@@ -31,30 +34,51 @@ const SettingsIcon = ({ className }: { className?: string }) => (
 );
 // ───────────────────────────────────────────────────────────────────────────
 
+const RefreshIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+    <path d="M21 3v5h-5" />
+    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+    <path d="M8 16H3v5" />
+  </svg>
+);
+// ───────────────────────────────────────────────────────────────────────────
+
 export default function Navbar() {
     const [modal, setModal] = useState<"about" | "how_it_works" | null>(null);
+    const isDashboard = useAppStore((s) => s.isDashboard);
+    const resetApp = useAppStore((s) => s.resetApp);
 
     return (
         <>
             <div className="fixed top-0 left-0 w-full z-[60] pt-6 px-4 flex justify-center pointer-events-none">
                 {/* ── Navbar ────────────────────────────────────────────────────────── */}
-            <nav className="pointer-events-auto flex items-center justify-between px-6 py-3 rounded-full bg-white/5 backdrop-blur-xl border border-white/10 shadow-[0_0_40px_rgba(6,182,212,0.15)] transition-all duration-300 hover:border-cyan-400/40 hover:shadow-[0_0_60px_rgba(6,182,212,0.25)] min-w-[340px] md:min-w-[400px]">
-                <div className="flex items-center gap-2">
+            <nav className="pointer-events-auto flex items-center justify-between gap-6 px-6 py-3 rounded-full bg-white/5 backdrop-blur-xl border border-white/10 shadow-[0_0_40px_rgba(6,182,212,0.15)] transition-all duration-300 hover:border-cyan-400/40 hover:shadow-[0_0_60px_rgba(6,182,212,0.25)] mx-auto max-w-2xl">
+                <div className="flex items-center gap-2 whitespace-nowrap">
                     <SparklesIcon className="w-5 h-5 text-cyan-400 drop-shadow-[0_0_10px_rgba(6,182,212,0.6)]" />
                     <span className="font-space-grotesk font-bold text-white tracking-wide text-lg drop-shadow-[0_2px_10px_rgba(255,255,255,0.2)]">
                         InsightPilot
                     </span>
                 </div>
-                <div className="flex items-center gap-6">
+                <div className="flex items-center gap-4 sm:gap-6 whitespace-nowrap">
+                    {isDashboard && (
+                        <button
+                            onClick={resetApp}
+                            className="flex items-center gap-2 text-sm font-space-grotesk font-bold px-4 py-2 rounded-xl bg-white/10 border border-white/20 text-white hover:text-cyan-300 hover:border-cyan-500/50 hover:bg-cyan-500/20 transition-all duration-200 shadow-md"
+                        >
+                            <RefreshIcon className="w-4 h-4" />
+                            New Analysis
+                        </button>
+                    )}
                     <button
                         onClick={() => setModal("about")}
-                        className="text-sm font-inter font-semibold text-gray-400 hover:text-cyan-300 transition-colors drop-shadow-sm"
+                        className="text-sm font-space-grotesk font-medium text-gray-300 hover:text-white hover:bg-white/10 px-3 py-1.5 rounded-lg transition-all"
                     >
                         About
                     </button>
                     <button
                         onClick={() => setModal("how_it_works")}
-                        className="text-sm font-inter font-semibold text-gray-400 hover:text-cyan-300 transition-colors drop-shadow-sm"
+                        className="text-sm font-space-grotesk font-medium text-gray-300 hover:text-white hover:bg-white/10 px-3 py-1.5 rounded-lg transition-all"
                     >
                         How It Works
                     </button>

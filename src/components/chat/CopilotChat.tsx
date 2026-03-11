@@ -44,6 +44,16 @@ const ChevronUpIcon = ({ className }: { className?: string }) => (
     <path d="m18 15-6-6-6 6" />
   </svg>
 );
+const MinimizeIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+  </svg>
+);
+const ChatIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </svg>
+);
 // ───────────────────────────────────────────────────────────────────────────
 
 import {
@@ -113,8 +123,12 @@ export default function CopilotChat() {
   const [expandedSql, setExpandedSql] = useState<string | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
 
+  const isCollapsed = useAppStore((s) => s.isChatCollapsed);
+  const setIsCollapsed = useAppStore((s) => s.setIsChatCollapsed);
+
   // ── Resize state ──────────────────────────────────────────────────────
-  const [panelWidth, setPanelWidth] = useState(380);
+  const panelWidth = useAppStore((s) => s.chatWidth);
+  const setPanelWidth = useAppStore((s) => s.setChatWidth);
   const isResizing = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(380);
@@ -152,8 +166,22 @@ export default function CopilotChat() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const { contextSafe } = useGSAP({ scope: containerRef });
+
+  // Cmd+K / Ctrl+K global shortcut → focus chat input
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setIsCollapsed(false);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Auto-scroll
   useEffect(() => {
@@ -237,6 +265,17 @@ export default function CopilotChat() {
 
   if (!isDashboard) return null;
 
+  if (isCollapsed) {
+    return (
+      <button
+        onClick={() => setIsCollapsed(false)}
+        className="fixed bottom-6 right-6 w-14 h-14 bg-cyan-500 hover:bg-cyan-400 text-white rounded-full shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center justify-center z-50 transition-all hover:scale-110"
+      >
+        <ChatIcon className="w-6 h-6" />
+      </button>
+    );
+  }
+
   return (
     <div
       ref={containerRef}
@@ -271,7 +310,16 @@ export default function CopilotChat() {
       <div className="h-16 flex items-center px-6 border-b border-white/10 shrink-0 bg-white/5">
         <SparklesIcon className="w-5 h-5 text-cyan-400 mr-2" />
         <h2 className="font-space-grotesk font-semibold text-white tracking-wide">InsightPilot Chat</h2>
-        <span className="ml-auto text-[10px] text-gray-600 font-inter select-none">⟵ drag edge to resize</span>
+        <div className="ml-auto flex items-center gap-4">
+          <span className="text-[10px] text-gray-500 font-inter select-none">⟵ drag edge</span>
+          <button 
+            onClick={() => setIsCollapsed(true)} 
+            className="text-gray-400 hover:text-white p-1 rounded-md hover:bg-white/10 transition-colors"
+            title="Collapse Chat"
+          >
+            <MinimizeIcon className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -293,13 +341,13 @@ export default function CopilotChat() {
               )}
             </div>
 
-            <div className="flex-1 min-w-0">
+            <div className={`flex-1 min-w-0 ${msg.role === "ai" ? "bg-white/5 border border-white/10 rounded-2xl p-4 shadow-sm" : ""}`}>
               <div className="font-inter text-xs text-gray-500 mb-1 font-medium">
                 {msg.role === "ai" ? "InsightPilot" : "You"}
               </div>
               <div
                 className={`font-inter text-sm leading-relaxed whitespace-pre-line ${
-                  msg.role === "ai" ? "text-gray-300" : "text-white"
+                  msg.role === "ai" ? "text-gray-200" : "text-white"
                 }`}
               >
                 {msg.content}
@@ -429,10 +477,10 @@ export default function CopilotChat() {
           <div className="chat-message flex items-start gap-4 ai-message">
             <div className="shrink-0 mt-1">
               <div className="w-8 h-8 rounded-full bg-cyan-500/20 border border-cyan-500/50 flex items-center justify-center text-cyan-400">
-                <TerminalSquare className="w-4 h-4" />
+                <TerminalIcon className="w-4 h-4" />
               </div>
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-2xl p-4 shadow-sm">
               <div className="font-inter text-xs text-gray-500 mb-2 font-medium">InsightPilot</div>
               <div className="flex gap-1 items-center">
                 <span className="w-2 h-2 rounded-full bg-cyan-400/60 animate-bounce" style={{ animationDelay: "0ms" }} />
@@ -448,30 +496,32 @@ export default function CopilotChat() {
 
       {/* Input */}
       <div className="p-4 shrink-0 bg-white/5 border-t border-white/10 backdrop-blur-md">
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap gap-2 mb-4">
           {displayedSuggestions.map((q, i) => (
             <button
               key={i}
               onClick={() => setInputValue(q)}
-              className="text-xs font-inter font-medium px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-gray-400 hover:text-cyan-300 hover:border-cyan-500/30 hover:bg-cyan-500/10 transition-colors truncate max-w-full text-left"
+              className="text-xs font-inter font-medium px-4 py-2 rounded-full bg-white/5 border border-white/10 text-gray-400 hover:text-cyan-300 hover:border-cyan-500/40 hover:bg-cyan-500/10 transition-colors truncate max-w-full text-left"
             >
               {q}
             </button>
           ))}
         </div>
 
-        <form onSubmit={handleSubmit} className="relative flex items-center">
+        <form onSubmit={handleSubmit} className="relative flex items-center mt-2">
           <input
+            ref={inputRef}
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="Ask anything about the data..."
-            className="w-full bg-black/50 border border-white/20 rounded-xl py-3 pl-4 pr-12 text-white font-inter text-sm placeholder:text-gray-600 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/50 transition-all"
+            className="w-full bg-black/50 border border-white/20 rounded-xl py-3 pl-4 pr-24 text-white font-inter text-sm placeholder:text-gray-600 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/50 transition-all"
           />
+          <div className="absolute right-10 text-[10px] font-inter text-gray-600 pointer-events-none hidden md:block">⌘K</div>
           <button
             type="submit"
             disabled={!inputValue.trim() || isLoading}
-            className="absolute right-2 p-2 rounded-lg text-cyan-500 hover:text-white hover:bg-cyan-500 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-cyan-500 transition-colors"
+            className="absolute right-2 p-2 rounded-lg text-cyan-400 hover:text-white hover:bg-cyan-500 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-cyan-400 transition-colors"
           >
             <SendIcon className="w-4 h-4" />
           </button>

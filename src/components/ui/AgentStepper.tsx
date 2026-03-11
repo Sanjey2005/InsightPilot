@@ -45,7 +45,7 @@ export default function AgentStepper() {
 
   // Build completed set from real log data
   const completedKeys = new Set(
-    agentLogs.filter((l) => l.status === "completed").map((l) => l.agent)
+    agentLogs.map((l) => l.agent)
   );
   if (runStatus === "completed") completedKeys.add("supervisor");
 

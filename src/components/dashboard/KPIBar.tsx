@@ -109,27 +109,40 @@ export default function KPIBar() {
             <div
               key={kpi.id}
               data-print-kpi
-              className="bg-white/5 backdrop-blur-md border border-white/10 p-4 rounded-2xl flex flex-col gap-2 relative overflow-hidden group min-w-0"
+              className="bg-white/5 backdrop-blur-md border border-white/10 border-t-white/20 p-5 rounded-2xl flex flex-col gap-3 relative overflow-hidden group min-w-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
             >
               <div className="absolute -inset-2 bg-gradient-to-r from-cyan-500/0 via-cyan-500/5 to-purple-500/0 opacity-0 group-hover:opacity-100 blur-xl transition-opacity duration-500" />
 
-              <h3 className="font-inter text-gray-400 text-xs font-medium z-10 truncate">{kpi.name}</h3>
+              {/* Top Row: Title & Badge */}
+              <div className="flex justify-between items-center z-10 w-full overflow-hidden gap-2">
+                <h3 className="font-inter text-gray-400 text-xs font-semibold uppercase tracking-wider truncate">
+                  {kpi.name}
+                </h3>
+                
+                <span
+                  className={`font-inter text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 ${isPositive
+                      ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.1)]"
+                      : "bg-red-500/10 text-red-400 border border-red-500/20"
+                    }`}
+                >
+                  {deltaLabel}
+                </span>
+              </div>
 
+              {/* Bottom Row: Large Number */}
               <span
                 ref={(el: HTMLSpanElement | null) => { numsRef.current[index] = el; }}
-                className="font-space-grotesk text-2xl font-bold text-white tracking-tight z-10"
+                className="font-space-grotesk text-3xl font-bold text-white tracking-tight z-10"
               >
                 {prefix}0{suffix}
               </span>
-
-              <span
-                className={`font-inter text-xs font-semibold px-2 py-1 rounded-md w-fit z-10 ${isPositive
-                    ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.1)]"
-                    : "bg-red-500/10 text-red-400 border border-red-500/20"
-                  }`}
-              >
-                {deltaLabel}
-              </span>
+              
+              {/* Period label — e.g. "vs last month", "Jan–Mar 2026" */}
+              {kpi.period_label && (
+                <span className="font-inter text-[10px] text-gray-500 z-10 truncate">
+                  {kpi.period_label}
+                </span>
+              )}
             </div>
           );
         })}

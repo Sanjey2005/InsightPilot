@@ -33,6 +33,8 @@ export default function Home() {
     setKPIs,
     setSchemaPreview,
     setIsSimulated,
+    isChatCollapsed,
+    chatWidth,
   } = useAppStore();
 
   const heroRef = useRef<HTMLDivElement>(null);
@@ -40,6 +42,10 @@ export default function Home() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const pollFailures = useRef(0);
+  
+  // Phase 4 States
+  const [activeFilter, setActiveFilter] = useState("All");
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
 
   // ── Cleanup poll on unmount ──────────────────────────────────────────
   useEffect(() => {
@@ -91,7 +97,11 @@ export default function Home() {
       setRunStatus("completed");
       setInsights(fallbackInsights);
       setKPIs(fallbackKPIs);
-      setTimeout(() => setIsDashboard(true), 1_200);
+      setIsLoadingDashboard(true);
+      setTimeout(() => {
+        setIsDashboard(true);
+        setIsLoadingDashboard(false);
+      }, 1500);
     }, FAKE_AGENTS.length * 2_200 + 800);
   }, [setAgentLogs, setRunStatus, setInsights, setKPIs, setIsDashboard]);
 
@@ -111,7 +121,11 @@ export default function Home() {
             clearInterval(pollRef.current!);
             setInsights(run.insights ?? []);
             setKPIs(run.kpis ?? []);
-            setTimeout(() => setIsDashboard(true), 1_200);
+            setIsLoadingDashboard(true);
+            setTimeout(() => {
+              setIsDashboard(true);
+              setIsLoadingDashboard(false);
+            }, 1000);
           } else if (run.status === "failed") {
             clearInterval(pollRef.current!);
             setErrorToast("The analysis pipeline encountered an error. Check the agent logs above for details.");
@@ -169,17 +183,19 @@ export default function Home() {
   );
 
   // ── Main CTA: trigger run (or simulate if no API) ────────────────────
-  const handleAnalyze = useCallback(async () => {
+  const handleAnalyze = useCallback(async (overrideDatasetId?: string) => {
     animateHeroOut();
 
-    if (!datasetId) {
+    const activeId = overrideDatasetId || datasetId;
+
+    if (!activeId) {
       // No file uploaded or API was unreachable — use full mock simulation
       startFallbackSimulation();
       return;
     }
 
     try {
-      const run = await triggerRun(datasetId);
+      const run = await triggerRun(activeId);
       setRunId(run.id);
       setRunStatus(run.status);
       setIsSimulated(false);
@@ -199,6 +215,22 @@ export default function Home() {
     setIsSimulated,
   ]);
 
+  // ── Load Sample Data ─────────────────────────────────────────────────
+  const handleTrySampleData = useCallback(async () => {
+    try {
+      const res = await fetch("/samples/sample_ecommerce.csv");
+      if (!res.ok) throw new Error("Sample file not available.");
+      const blob = await res.blob();
+      const file = new File([blob], "sample_ecommerce.csv", { type: "text/csv" });
+      const result = await uploadDataset(file);
+      setDatasetId(result.id);
+      setSchemaPreview(result.schema_preview);
+      handleAnalyze(result.id);
+    } catch (err) {
+      setErrorToast("Failed to load sample dataset. Please manually upload a CSV.");
+    }
+  }, [setDatasetId, setSchemaPreview, handleAnalyze]);
+
   // ── Global Error Toast ───────────────────────────────────────────────
   const renderErrorToast = () => {
     if (!errorToast) return null;
@@ -214,7 +246,8 @@ export default function Home() {
   if (isDashboard) {
     return (
       <div
-        className="min-h-[calc(100vh-1rem)] w-full flex flex-col relative z-20 pt-8 max-w-[1400px] mx-auto px-4 lg:pr-[35%]"
+        className="min-h-[calc(100vh-1rem)] w-full flex flex-col relative z-20 pt-8 max-w-[1400px] mx-auto px-4 transition-all duration-300"
+        style={{ paddingRight: isChatCollapsed ? '1rem' : `${chatWidth + 32}px` }}
         data-print-content
       >
         {renderErrorToast()}
@@ -246,18 +279,48 @@ export default function Home() {
 
         <KPIBar />
         <div className="w-full mt-10 pb-32">
-          <h2 className="text-xl font-space-grotesk text-white mb-6 font-semibold drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
-            Active Insights
-          </h2>
-          {insights.length === 0 ? (
-            <div className="w-full bg-white/5 backdrop-blur-md border border-white/10 p-8 rounded-3xl flex flex-col items-center justify-center text-center">
-              <h3 className="text-xl font-space-grotesk font-semibold text-white mb-2">No Insights Found</h3>
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+            <h2 className="text-xl font-space-grotesk text-white font-semibold drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
+              Active Insights
+            </h2>
+            
+            {/* Filter Pills */}
+            <div className="flex flex-wrap items-center gap-3">
+              {["All", "Trends", "Anomalies", "Segments", "KPIs"].map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setActiveFilter(filter)}
+                  className={`px-6 py-2 rounded-full text-sm font-space-grotesk font-semibold transition-all duration-300 border backdrop-blur-md ${
+                    activeFilter === filter
+                      ? "bg-cyan-500/30 border-cyan-400 text-white shadow-[0_0_20px_rgba(6,182,212,0.4)]"
+                      : "bg-white/10 border-white/20 text-gray-300 hover:text-white hover:bg-white/20 hover:border-white/30"
+                  }`}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {insights.filter(i => activeFilter === "All" || i.type === activeFilter.toLowerCase().replace(/s$/, '')).length === 0 ? (
+            <div className="w-full bg-white/5 backdrop-blur-md border border-white/10 p-12 rounded-3xl flex flex-col items-center justify-center text-center group transition-all hover:bg-white/10">
+              <div className="w-20 h-20 mb-6 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-500 group-hover:text-cyan-400 group-hover:border-cyan-500/30 transition-colors">
+                <svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                  <path d="M11 8v6" />
+                  <path d="M8 11h6" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-space-grotesk font-semibold text-white mb-2">No Insights Available</h3>
               <p className="text-gray-400 font-inter text-sm max-w-md">
-                No insights generated yet. Try uploading a larger dataset.
+                We couldn't find any actionable data matching your current filters. Try adjusting your view or upload a more detailed dataset.
               </p>
             </div>
           ) : (
-            insights.map((insight, i) => (
+            insights
+              .filter(i => activeFilter === "All" || i.type === activeFilter.toLowerCase().replace(/s$/, ''))
+              .map((insight, i) => (
               <StoryCard key={insight.id} insight={insight} index={i} />
             ))
           )}
@@ -275,7 +338,7 @@ export default function Home() {
 
 
   return (
-    <div className="flex min-h-[calc(100vh-1rem)] flex-col items-center justify-center px-4 relative overflow-hidden">
+    <div className="flex min-h-[calc(100vh-1rem)] flex-col items-center justify-center px-4 pt-32 pb-16 relative overflow-hidden">
       
       {/* ── Dynamic Particle Background ── */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
@@ -305,13 +368,25 @@ export default function Home() {
         className={`flex flex-col items-center justify-center w-full max-w-4xl transition-opacity ${isProcessing ? "pointer-events-none" : ""
           }`}
       >
-        <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold mb-6 text-center text-white drop-shadow-[0_0_20px_rgba(6,182,212,0.4)] tracking-tight font-space-grotesk">
-          Upload Dataset.
-          <br />
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500">
-            Awaken InsightPilot.
-          </span>
-        </h1>
+        {/* Text Area with Blur Backdrop for Contrast */}
+        <div className="relative text-center w-full z-10 flex flex-col items-center">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[150%] bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.6)_0%,rgba(0,0,0,0)_60%)] -z-10 blur-xl pointer-events-none" />
+          
+          <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold mb-4 text-center text-white drop-shadow-[0_0_30px_rgba(255,255,255,0.4)] tracking-tight font-space-grotesk">
+            Upload Dataset.
+            <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-purple-400 drop-shadow-[0_0_30px_rgba(6,182,212,0.6)]">
+              Awaken InsightPilot.
+            </span>
+          </h1>
+
+          {/* Animated tagline */}
+          <p className="font-inter text-gray-200 text-sm md:text-base text-center max-w-lg mb-2 leading-relaxed drop-shadow-md">
+            Drop your CSV
+            <span className="text-cyan-400 font-medium"> →</span> get{" "}
+            <span className="text-white font-medium">trends, anomalies &amp; KPIs</span> surfaced by AI in seconds.
+          </p>
+        </div>
 
         {/* Drop zone */}
         <div
@@ -345,21 +420,69 @@ export default function Home() {
             </p>
           )}
         </div>
+        
+        {/* Format hint */}
+        <p className="font-inter text-xs text-gray-300 mt-4 text-center drop-shadow-sm">
+          CSV files · up to 50 MB · UTF-8 encoding
+        </p>
 
 
         {/* CTA Button */}
         <button
-          onClick={handleAnalyze}
-          className="mt-6 px-10 py-3 rounded-2xl font-space-grotesk font-semibold text-base text-cyan-500 bg-white/5 backdrop-blur-lg border border-white/10 transition-all duration-300 hover:bg-white/10 hover:border-cyan-400/40 hover:shadow-[0_0_24px_rgba(6,182,212,0.4)]"
+          onClick={() => handleAnalyze()}
+          disabled={!datasetId && isProcessing}
+          className="mt-6 px-10 py-3 rounded-2xl font-space-grotesk font-semibold text-base text-cyan-500 bg-white/5 backdrop-blur-lg border border-white/10 transition-all duration-300 hover:bg-white/10 hover:border-cyan-400/40 hover:shadow-[0_0_24px_rgba(6,182,212,0.4)] disabled:opacity-50"
         >
           {ctaLabel}
         </button>
+
+        {/* Try Sample Data */}
+        {!datasetId && !isProcessing && (
+          <button
+            onClick={handleTrySampleData}
+            className="mt-4 text-xs font-inter text-gray-400 hover:text-cyan-300 transition-colors underline underline-offset-4 decoration-white/20 hover:decoration-cyan-500/50"
+          >
+            Don't have a CSV? Try Sample Data
+          </button>
+        )}
+
+        {/* Feature mini-cards */}
+        {!isProcessing && (
+          <div className="grid grid-cols-3 gap-3 mt-10 mb-8 w-full max-w-xl">
+            {[
+              { emoji: "📊", title: "Auto KPIs", desc: "Key metrics surfaced automatically" },
+              { emoji: "🔍", title: "Anomaly Detection", desc: "Outliers flagged and explained" },
+              { emoji: "💬", title: "Chat with Data", desc: "Ask questions in plain English" },
+            ].map(({ emoji, title, desc }) => (
+              <div
+                key={title}
+                className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-4 flex flex-col items-start gap-1.5 hover:bg-white/10 hover:border-cyan-500/30 transition-colors"
+              >
+                <span className="text-xl">{emoji}</span>
+                <p className="font-space-grotesk text-white text-xs font-semibold">{title}</p>
+                <p className="font-inter text-gray-500 text-[10px] leading-snug">{desc}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Agent Stepper */}
+      {/* Agent Stepper & Skeleton Dashboard Loading */}
       {isProcessing && !isDashboard && (
         <div className="absolute inset-0 flex items-center justify-center w-full z-20">
-          <AgentStepper />
+          {!isLoadingDashboard ? (
+            <AgentStepper />
+          ) : (
+            <div className="w-full max-w-[1400px] px-4 lg:pr-[35%] flex flex-col gap-6 animate-pulse mt-32 h-full items-start justify-start">
+              {/* Fake KPI row */}
+              <div className="w-full grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[1, 2, 3, 4].map(k => <div key={k} className="h-32 rounded-2xl bg-white/5 border border-white/10" />)}
+              </div>
+              {/* Fake Story Cards */}
+              <div className="h-10 w-48 bg-white/5 rounded-xl mt-8" />
+              {[1, 2].map(k => <div key={k} className="w-full h-80 rounded-3xl bg-white/5 border border-white/10 mt-4" />)}
+            </div>
+          )}
         </div>
       )}
     </div>
