@@ -90,7 +90,9 @@ _ID_KEYWORDS        = {"id", "key", "uuid", "code", "no", "num", "ref"}
 def _heuristic_classify_columns(df: pd.DataFrame) -> Dict:
     """
     Classify columns using pandas dtypes and column-name keyword matching.
-    Used as a fallback when the Gemini API is unavailable.
+    Uses pd.to_datetime(errors='coerce') for robust date detection that works
+    with ISO, slash-separated, and mixed date formats.
+    Used as a fallback when the Groq API is unavailable.
     """
     classifications: Dict[str, str] = {}
     date_col: str | None = None
@@ -102,30 +104,42 @@ def _heuristic_classify_columns(df: pd.DataFrame) -> Dict:
         col_lower = col.lower()
         dtype = str(df[col].dtype)
 
-        # Detect ID columns first
-        if any(kw in col_lower for kw in _ID_KEYWORDS):
-            classifications[col] = "id"
-            continue
+        # Detect ID columns first (only exact / suffix matches, not substrings)
+        if col_lower == "id" or col_lower.endswith("_id") or col_lower.endswith("id"):
+            if not any(kw in col_lower for kw in _DATE_KEYWORDS | _METRIC_KEYWORDS):
+                classifications[col] = "id"
+                continue
 
-        # Detect date columns by dtype or name
-        if dtype in ("datetime64[ns]", "object") and (
-            any(kw in col_lower for kw in _DATE_KEYWORDS)
-            or df[col].astype(str).str.match(r"\d{4}-\d{2}-\d{2}").mean() > 0.5
-        ):
+        # Detect datetime dtype columns
+        if dtype.startswith("datetime"):
             classifications[col] = "date"
             if date_col is None:
                 date_col = col
             continue
 
+        # Detect date columns by name keyword match
+        if any(kw in col_lower for kw in _DATE_KEYWORDS):
+            # Try to parse to confirm it holds date-like values
+            parsed = pd.to_datetime(df[col], errors="coerce", infer_datetime_format=True)
+            if parsed.notna().mean() > 0.5:
+                classifications[col] = "date"
+                if date_col is None:
+                    date_col = col
+                continue
+
+        # Detect date columns by content (object columns that parse as dates)
+        if dtype == "object":
+            parsed = pd.to_datetime(df[col], errors="coerce", infer_datetime_format=True)
+            if parsed.notna().mean() > 0.7:  # >70% parseable → it's a date
+                classifications[col] = "date"
+                if date_col is None:
+                    date_col = col
+                continue
+
         # Detect metrics by dtype
         if dtype in ("int64", "float64") or dtype.startswith("int") or dtype.startswith("float"):
-            if any(kw in col_lower for kw in _METRIC_KEYWORDS):
-                classifications[col] = "metric"
-                metric_cols.append(col)
-            else:
-                # Numeric but not a known metric keyword — default metric
-                classifications[col] = "metric"
-                metric_cols.append(col)
+            classifications[col] = "metric"
+            metric_cols.append(col)
             continue
 
         # Detect dimensions
@@ -160,6 +174,7 @@ def _heuristic_classify_columns(df: pd.DataFrame) -> Dict:
         "dimension_columns": dimension_cols,
         "kpi_candidates": kpi_candidates,
     }
+
 
 
 
