@@ -11,9 +11,24 @@ import {
   ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
-import { ThumbsUp, ThumbsDown } from "lucide-react";
 import type { InsightResponse } from "@/lib/api";
 import { submitFeedback } from "@/lib/api";
+
+// ── Inline SVG icons (no lucide-react) ─────────────────────────────────────
+const ThumbUpIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M7 10v12" />
+    <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
+  </svg>
+);
+
+const ThumbDownIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 14V2" />
+    <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z" />
+  </svg>
+);
+// ───────────────────────────────────────────────────────────────────────────
 
 interface StoryCardProps {
   insight: InsightResponse;
@@ -24,8 +39,6 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [feedbackSignal, setFeedbackSignal] = useState<"thumbs_up" | "thumbs_down" | null>(null);
 
-  // Simple staggered mount animation — no ScrollTrigger so cards are never
-  // left invisible if position measurement misfires after the layout switch.
   useGSAP(() => {
     gsap.fromTo(
       cardRef.current,
@@ -134,11 +147,6 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
     }
   };
 
-  // FIX (issue #3): height must be a number, not "100%".
-  // ResponsiveContainer with height="100%" reads the parent's computed height via
-  // ResizeObserver. In React 19 concurrent mode the observer fires before the
-  // browser has committed the Tailwind h-64 class, so height resolves to 0 and
-  // Recharts never renders its SVG. Passing height={240} bypasses measurement.
   const chart = renderChart();
 
   return (
@@ -170,7 +178,7 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
                 : "text-gray-500 hover:text-cyan-400 hover:bg-white/5"
               }`}
           >
-            <ThumbsUp className="w-5 h-5" />
+            <ThumbUpIcon className="w-5 h-5" />
           </button>
           <button
             onClick={() => handleFeedback("thumbs_down")}
@@ -179,7 +187,7 @@ export default function StoryCard({ insight, index = 0 }: StoryCardProps) {
                 : "text-gray-500 hover:text-red-400 hover:bg-white/5"
               }`}
           >
-            <ThumbsDown className="w-5 h-5" />
+            <ThumbDownIcon className="w-5 h-5" />
           </button>
         </div>
       </div>

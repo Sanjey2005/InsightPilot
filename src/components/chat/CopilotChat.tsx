@@ -9,7 +9,42 @@ import {
 } from "@/lib/api";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { Send, Sparkles, User, TerminalSquare, ChevronDown, ChevronUp } from "lucide-react";
+// ── Inline SVG icons (no lucide-react) ─────────────────────────────────────
+const SendIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+    <path d="m21.854 2.147-10.94 10.939" />
+  </svg>
+);
+const SparklesIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+    <path d="M20 3v4M22 5h-4M4 17v2M5 18H3" />
+  </svg>
+);
+const UserIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="8" r="5" />
+    <path d="M20 21a8 8 0 1 0-16 0" />
+  </svg>
+);
+const TerminalIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="4 17 10 11 4 5" />
+    <line x1="12" x2="20" y1="19" y2="19" />
+  </svg>
+);
+const ChevronDownIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
+const ChevronUpIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m18 15-6-6-6 6" />
+  </svg>
+);
+// ───────────────────────────────────────────────────────────────────────────
 
 import {
   ResponsiveContainer,
@@ -36,6 +71,30 @@ const DEFAULT_SUGGESTIONS = [
   "Which segment is growing fastest?",
 ];
 
+// ─── Out-of-scope guard ────────────────────────────────────────────────────
+// Patterns that clearly indicate a non-data question
+const OUT_OF_SCOPE_PATTERNS = [
+  /^(hi|hello|hey|yo|sup|hiya|howdy|greetings)[!\s.?]*$/i,
+  /^(how are you|what's up|what is up|how do you do)[?!.]*$/i,
+  /^(who are you|what are you)[?!.]*$/i,
+  /^(what('s| is) (the )?(weather|time|date|news|capital|president|meaning of life))/i,
+  /^(tell me a joke|say something|can you dance|do you have feelings)/i,
+  /^(write (me )?(a |an )?(poem|story|essay|song|code))/i,
+  /^(translate|explain|summarize|define)\s+(?!my|the\s+data|this\s+data)/i,
+];
+
+const OUT_OF_SCOPE_REPLY =
+  "I'm InsightPilot — a data analysis assistant that only works with your uploaded dataset. 📊\n\nTry asking something like:\n• \"What is the total revenue by region?\"\n• \"Which product category performs best?\"\n• \"Show me the monthly trend for sales.\"\n\nI can only answer questions about the data you've uploaded!";
+
+function isOutOfScope(question: string): boolean {
+  const q = question.trim();
+  return OUT_OF_SCOPE_PATTERNS.some((re) => re.test(q));
+}
+// ──────────────────────────────────────────────────────────────────────────
+
+const MIN_WIDTH = 300;
+const MAX_WIDTH = 700;
+
 export default function CopilotChat() {
   const isDashboard = useAppStore((s) => s.isDashboard);
   const datasetId = useAppStore((s) => s.datasetId);
@@ -53,6 +112,43 @@ export default function CopilotChat() {
   const [isLoading, setIsLoading] = useState(false);
   const [expandedSql, setExpandedSql] = useState<string | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
+
+  // ── Resize state ──────────────────────────────────────────────────────
+  const [panelWidth, setPanelWidth] = useState(380);
+  const isResizing = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(380);
+
+  const onMouseDownResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    startX.current = e.clientX;
+    startWidth.current = panelWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const delta = startX.current - e.clientX; // drag left = wider
+      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth.current + delta));
+      setPanelWidth(newWidth);
+    };
+    const onMouseUp = () => {
+      if (!isResizing.current) return;
+      isResizing.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+  // ─────────────────────────────────────────────────────────────────────
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -97,8 +193,24 @@ export default function CopilotChat() {
     const userMsg: Message = { id: Date.now().toString(), role: "user", content: question };
     setMessages((prev) => [...prev, userMsg]);
     setInputValue("");
-    setIsLoading(true);
     setTimeout(animateNewMessage, 50);
+
+    // ── Out-of-scope guard ─────────────────────────────────────────────
+    if (isOutOfScope(question)) {
+      setTimeout(() => {
+        const scopeMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "ai",
+          content: OUT_OF_SCOPE_REPLY,
+        };
+        setMessages((prev) => [...prev, scopeMsg]);
+        setTimeout(animateNewMessage, 50);
+      }, 400);
+      return;
+    }
+    // ──────────────────────────────────────────────────────────────────
+
+    setIsLoading(true);
 
     try {
       if (!datasetId) throw new Error("No dataset selected for analysis.");
@@ -128,8 +240,26 @@ export default function CopilotChat() {
   return (
     <div
       ref={containerRef}
-      className="fixed inset-y-0 right-0 w-[30%] min-w-[320px] max-w-[400px] bg-black/40 backdrop-blur-2xl border-l border-white/10 flex flex-col z-40 opacity-0 shadow-[-20px_0_40px_rgba(0,0,0,0.5)]"
+      style={{ width: panelWidth }}
+      className="fixed inset-y-0 right-0 bg-black/40 backdrop-blur-2xl border-l border-white/10 flex flex-col z-40 opacity-0 shadow-[-20px_0_40px_rgba(0,0,0,0.5)]"
     >
+      {/* ── Resize handle ─────────────────────────────────────────────── */}
+      <div
+        onMouseDown={onMouseDownResize}
+        title="Drag to resize"
+        className="absolute left-0 top-0 bottom-0 w-3 cursor-col-resize z-50 group flex items-center justify-center"
+      >
+        {/* Visible grip dots */}
+        <div className="flex flex-col gap-1 items-center opacity-30 group-hover:opacity-100 transition-opacity duration-200">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="w-1 h-1 rounded-full bg-cyan-400" />
+          ))}
+        </div>
+        {/* Wider invisible hit area */}
+        <div className="absolute inset-y-0 -left-1 -right-1" />
+      </div>
+      {/* ──────────────────────────────────────────────────────────────── */}
+
       {errorToast && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[90%] bg-white/5 backdrop-blur-md border border-red-500/20 px-4 py-3 rounded-2xl z-50 shadow-2xl flex items-start gap-3">
           <p className="text-red-400 font-inter text-xs leading-relaxed flex-1">{errorToast}</p>
@@ -139,8 +269,9 @@ export default function CopilotChat() {
 
       {/* Header */}
       <div className="h-16 flex items-center px-6 border-b border-white/10 shrink-0 bg-white/5">
-        <Sparkles className="w-5 h-5 text-cyan-400 mr-2" />
+        <SparklesIcon className="w-5 h-5 text-cyan-400 mr-2" />
         <h2 className="font-space-grotesk font-semibold text-white tracking-wide">InsightPilot Chat</h2>
+        <span className="ml-auto text-[10px] text-gray-600 font-inter select-none">⟵ drag edge to resize</span>
       </div>
 
       {/* Messages */}
@@ -153,11 +284,11 @@ export default function CopilotChat() {
             <div className="shrink-0 mt-1">
               {msg.role === "ai" ? (
                 <div className="w-8 h-8 rounded-full bg-cyan-500/20 border border-cyan-500/50 flex items-center justify-center text-cyan-400">
-                  <TerminalSquare className="w-4 h-4" />
+                  <TerminalIcon className="w-4 h-4" />
                 </div>
               ) : (
                 <div className="w-8 h-8 rounded-full bg-purple-500/20 border border-purple-500/50 flex items-center justify-center text-purple-400">
-                  <User className="w-4 h-4" />
+                  <UserIcon className="w-4 h-4" />
                 </div>
               )}
             </div>
@@ -167,8 +298,9 @@ export default function CopilotChat() {
                 {msg.role === "ai" ? "InsightPilot" : "You"}
               </div>
               <div
-                className={`font-inter text-sm leading-relaxed whitespace-pre-line ${msg.role === "ai" ? "text-gray-300" : "text-white"
-                  }`}
+                className={`font-inter text-sm leading-relaxed whitespace-pre-line ${
+                  msg.role === "ai" ? "text-gray-300" : "text-white"
+                }`}
               >
                 {msg.content}
               </div>
@@ -187,7 +319,7 @@ export default function CopilotChat() {
                         const xKey = (cfg as any).x ?? cfg.x_key ?? "name";
                         let yKey = (cfg as any).y ?? cfg.y_key;
                         if (!yKey && data[0]) {
-                          yKey = Object.keys(data[0]).find(k => k !== xKey) ?? "value";
+                          yKey = Object.keys(data[0]).find((k) => k !== xKey) ?? "value";
                         }
                         const color = cfg.color ?? "#06b6d4";
 
@@ -203,7 +335,7 @@ export default function CopilotChat() {
                             borderColor: "#ffffff20",
                             borderRadius: "8px",
                             color: "#fff",
-                            fontSize: "12px"
+                            fontSize: "12px",
                           },
                         };
 
@@ -225,7 +357,13 @@ export default function CopilotChat() {
                               <XAxis dataKey={xKey} {...axisProps} />
                               <YAxis {...axisProps} width={40} />
                               <Tooltip {...tooltipStyle} />
-                              <Area type="monotone" dataKey={yKey} stroke={color} fill={`${color}33`} strokeWidth={2} />
+                              <Area
+                                type="monotone"
+                                dataKey={yKey}
+                                stroke={color}
+                                fill={`${color}33`}
+                                strokeWidth={2}
+                              />
                             </AreaChart>
                           );
                         } else if (cType === "scatter") {
@@ -245,7 +383,14 @@ export default function CopilotChat() {
                             <XAxis dataKey={xKey} {...axisProps} />
                             <YAxis {...axisProps} width={40} />
                             <Tooltip {...tooltipStyle} />
-                            <Line type="monotone" dataKey={yKey} stroke={color} strokeWidth={2} dot={{ r: 3, fill: "#000", strokeWidth: 2 }} activeDot={{ r: 5, fill: "#fff" }} />
+                            <Line
+                              type="monotone"
+                              dataKey={yKey}
+                              stroke={color}
+                              strokeWidth={2}
+                              dot={{ r: 3, fill: "#000", strokeWidth: 2 }}
+                              activeDot={{ r: 5, fill: "#fff" }}
+                            />
                           </LineChart>
                         );
                       })()}
@@ -262,9 +407,9 @@ export default function CopilotChat() {
                     className="flex items-center gap-1 text-xs text-gray-500 hover:text-cyan-400 transition-colors"
                   >
                     {expandedSql === msg.id ? (
-                      <ChevronUp className="w-3 h-3" />
+                      <ChevronUpIcon className="w-3 h-3" />
                     ) : (
-                      <ChevronDown className="w-3 h-3" />
+                      <ChevronDownIcon className="w-3 h-3" />
                     )}
                     View SQL
                   </button>
@@ -328,7 +473,7 @@ export default function CopilotChat() {
             disabled={!inputValue.trim() || isLoading}
             className="absolute right-2 p-2 rounded-lg text-cyan-500 hover:text-white hover:bg-cyan-500 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-cyan-500 transition-colors"
           >
-            <Send className="w-4 h-4" />
+            <SendIcon className="w-4 h-4" />
           </button>
         </form>
       </div>

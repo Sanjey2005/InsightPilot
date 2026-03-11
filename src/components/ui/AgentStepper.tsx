@@ -4,7 +4,28 @@ import { useRef } from "react";
 import { useAppStore } from "@/lib/store";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { CheckCircle2, CircleDashed, Loader2 } from "lucide-react";
+
+// ── Inline SVG icons (no lucide-react) ─────────────────────────────────────
+const CheckCircleIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <path d="m9 12 2 2 4-4" />
+  </svg>
+);
+
+const CircleDotIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" strokeDasharray="4 2" />
+    <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+const SpinnerIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+  </svg>
+);
+// ───────────────────────────────────────────────────────────────────────────
 
 const AGENTS = [
   { key: "schema_agent",  name: "Schema Discovery Agent",  desc: "Inferring schema & detecting KPIs..." },
@@ -61,13 +82,9 @@ export default function AgentStepper() {
 
       <div className="flex flex-col gap-6">
         {AGENTS.map((agent, i) => {
-          // Strict waterfall logic:
-          // A step is done ONLY if it's in completedKeys AND all previous steps are in completedKeys.
-          // This prevents later steps showing as done if polling missed an intermediate step.
           const isDone = completedKeys.has(agent.key) && (i === 0 || completedKeys.has(AGENTS[i - 1].key));
           const isActive =
             !isDone && (i === 0 || (completedKeys.has(AGENTS[i - 1].key) && (i === 1 || completedKeys.has(AGENTS[i - 2].key))));
-
 
           return (
             <div
@@ -79,11 +96,11 @@ export default function AgentStepper() {
             >
               <div className="w-6 h-6 shrink-0">
                 {isDone ? (
-                  <CheckCircle2 className="w-6 h-6 text-cyan-400" />
+                  <CheckCircleIcon className="w-6 h-6 text-cyan-400" />
                 ) : isActive ? (
-                  <Loader2 className="w-6 h-6 text-purple-400 animate-spin" />
+                  <SpinnerIcon className="w-6 h-6 text-purple-400 animate-spin" />
                 ) : (
-                  <CircleDashed className="w-6 h-6 text-gray-500" />
+                  <CircleDotIcon className="w-6 h-6 text-gray-500" />
                 )}
               </div>
 
