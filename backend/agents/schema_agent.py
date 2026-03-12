@@ -253,23 +253,37 @@ def run_schema_agent(state: Dict[str, Any]) -> Dict[str, Any]:
 
             col_summary = _summarise_columns(df)
 
+            # Always run heuristic as a reliable baseline
+            heuristic_info = _heuristic_classify_columns(df)
+
             try:
                 # PRIMARY: LLM-based column classification
-                schema_info = extract_json(call_gemini(
+                llm_info = extract_json(call_gemini(
                     _CLASSIFY_PROMPT.format(
                         table_name=table_name,
                         columns_json=json.dumps(col_summary, indent=2),
                     ),
                     max_tokens=1_500,
                 ))
-                logger.info("schema_agent: Gemini classification succeeded")
+                # Merge: use LLM results, fall back to heuristic for any missing/empty fields
+                schema_info = {
+                    "classifications":  llm_info.get("classifications")   or heuristic_info["classifications"],
+                    "date_column":      llm_info.get("date_column")       or heuristic_info.get("date_column"),
+                    "metric_columns":   llm_info.get("metric_columns")    or heuristic_info["metric_columns"],
+                    "dimension_columns": llm_info.get("dimension_columns") or heuristic_info["dimension_columns"],
+                    "kpi_candidates":   llm_info.get("kpi_candidates")    or heuristic_info["kpi_candidates"],
+                }
+                logger.info(
+                    "schema_agent: LLM classification succeeded; kpi_candidates=%d",
+                    len(schema_info["kpi_candidates"]),
+                )
             except Exception as llm_exc:
-                # FALLBACK: heuristic classification so pipeline can still run
+                # FALLBACK: heuristic only
                 logger.warning(
-                    "schema_agent: Gemini unavailable (%s) — using heuristic fallback",
+                    "schema_agent: LLM unavailable (%s) — using heuristic fallback",
                     llm_exc,
                 )
-                schema_info = _heuristic_classify_columns(df)
+                schema_info = heuristic_info
 
             hypotheses = _build_hypotheses(schema_info, table_name)
 
