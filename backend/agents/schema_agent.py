@@ -11,10 +11,8 @@ import logging
 from typing import Any, Dict, List
 
 import pandas as pd
-from sqlalchemy import create_engine
 
 from agents.utils import Timer, call_gemini, extract_json, make_log
-from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -245,9 +243,7 @@ def run_schema_agent(state: Dict[str, Any]) -> Dict[str, Any]:
 
     with Timer() as t:
         try:
-            engine = create_engine(
-                settings.database_url, connect_args={"check_same_thread": False}
-            )
+            from core.database import engine
             with engine.connect() as conn:
                 df = pd.read_sql(f'SELECT * FROM "{table_name}" LIMIT 50', conn)
 
@@ -273,6 +269,24 @@ def run_schema_agent(state: Dict[str, Any]) -> Dict[str, Any]:
                     "dimension_columns": llm_info.get("dimension_columns") or heuristic_info["dimension_columns"],
                     "kpi_candidates":   llm_info.get("kpi_candidates")    or heuristic_info["kpi_candidates"],
                 }
+
+                # ── Normalise LLM column references to match actual DataFrame
+                # column names (case-insensitive). The LLM may return "Revenue"
+                # but the real sanitised column is "revenue". ──────────────────
+                col_lookup = {c.lower(): c for c in df.columns}
+
+                def _fix_col(name: str) -> str:
+                    return col_lookup.get(name.lower(), name) if name else name
+
+                schema_info["date_column"] = _fix_col(schema_info.get("date_column") or "")
+                schema_info["metric_columns"] = [
+                    _fix_col(c) for c in schema_info.get("metric_columns", [])
+                ]
+                schema_info["dimension_columns"] = [
+                    _fix_col(c) for c in schema_info.get("dimension_columns", [])
+                ]
+                for kc in schema_info.get("kpi_candidates", []):
+                    kc["column"] = _fix_col(kc.get("column", ""))
                 logger.info(
                     "schema_agent: LLM classification succeeded; kpi_candidates=%d",
                     len(schema_info["kpi_candidates"]),

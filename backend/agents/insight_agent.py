@@ -243,6 +243,6 @@ def run_insight_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     # Hard-cap at 8 insights to cover all types with good variety
     return {
         "insights": insights[:8],
-        "agent_logs": [log],
-        "errors": [],
+        "agent_logs": state.get("agent_logs", []) + [log],
+        "errors": state.get("errors", []),
     }

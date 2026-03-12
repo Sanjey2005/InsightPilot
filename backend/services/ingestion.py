@@ -15,7 +15,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import create_engine
 
 from core.config import settings
 from schemas.dataset import ColumnProfile, SchemaPreview

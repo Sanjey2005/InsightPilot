@@ -11,13 +11,12 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from agents.sql_agent import validate_sql
 from agents.utils import call_gemini, extract_json
 from core.auth import get_current_user
-from core.config import settings
 from core.database import get_db
 from models.dataset import Dataset
 from models.user import User
@@ -174,7 +173,7 @@ Respond ONLY with a valid JSON object:
 # ---------------------------------------------------------------------------
 
 def _execute_sql(sql: str) -> tuple[List[Dict], Optional[str]]:
-    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+    from core.database import engine
     try:
         with engine.connect() as conn:
             result = conn.execute(text(sql))

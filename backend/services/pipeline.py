@@ -43,8 +43,8 @@ def _derive_kpis(state: Dict[str, Any], run_id: str) -> List[KPI]:
     Falls back gracefully: if a query fails, the KPI still appears with
     value=None, delta_pct=None so the frontend can render a placeholder.
     """
-    from sqlalchemy import create_engine, text
-    from core.config import settings
+    from sqlalchemy import text
+    from core.database import engine
 
     kpi_candidates: List[Dict] = state.get("kpi_candidates", [])
     table_name: str = state.get("table_name", "")
@@ -52,17 +52,86 @@ def _derive_kpis(state: Dict[str, Any], run_id: str) -> List[KPI]:
     date_column = schema_info.get("date_column")
 
     if not table_name:
+        logger.warning("_derive_kpis: no table_name in state — returning empty")
         return []
 
-    engine = create_engine(
-        settings.database_url, connect_args={"check_same_thread": False}
+    # ── Build a lookup of actual column names in the table (for case-
+    #    insensitive matching — LLM may return "Revenue" while the real
+    #    column is "revenue"). ─────────────────────────────────────────
+    actual_columns: Dict[str, str] = {}  # lower-cased → real name
+    try:
+        with engine.connect() as conn:
+            pragma_rows = conn.execute(
+                text(f'PRAGMA table_info("{table_name}")')
+            ).fetchall()
+        for row in pragma_rows:
+            real_name = str(row[1])
+            actual_columns[real_name.lower()] = real_name
+        logger.info(
+            "_derive_kpis: table %s has columns: %s",
+            table_name, list(actual_columns.values()),
+        )
+    except Exception as exc:
+        logger.error("_derive_kpis: PRAGMA table_info failed for %s: %s", table_name, exc)
+
+    def _resolve_col(col: str) -> str:
+        """Resolve a column name to its exact casing in the table."""
+        if col in actual_columns.values():
+            return col
+        return actual_columns.get(col.lower(), col)
+
+    logger.info(
+        "_derive_kpis: received %d kpi_candidates from schema_agent",
+        len(kpi_candidates),
     )
+
+    # ── If schema_agent produced no candidates, discover numeric columns
+    # directly from the SQLite table so KPIs are always generated. ─────────
+    if not kpi_candidates:
+        logger.warning("_derive_kpis: no kpi_candidates — running PRAGMA fallback")
+        _NUMERIC_AFFINITY = {"INTEGER", "REAL", "NUMERIC", "INT", "FLOAT", "DOUBLE"}
+        for real_name in actual_columns.values():
+            col_lower = real_name.lower()
+            # Skip ID-like columns
+            if col_lower == "id" or col_lower.endswith("_id"):
+                continue
+            # Look up the type from the pragma rows we already fetched
+            col_type = ""
+            for row in pragma_rows:
+                if str(row[1]) == real_name:
+                    col_type = (str(row[2]) or "").upper().split("(")[0].strip()
+                    break
+            if any(t in col_type for t in _NUMERIC_AFFINITY):
+                if any(kw in col_lower for kw in {"price", "rate", "score", "avg", "average", "ratio"}):
+                    agg = "AVG"
+                else:
+                    agg = "SUM"
+                kpi_candidates.append({
+                    "name": real_name.replace("_", " ").title(),
+                    "column": real_name,
+                    "aggregation": agg,
+                })
+                if len(kpi_candidates) >= 3:
+                    break
+        logger.info("_derive_kpis: PRAGMA fallback found %d numeric columns", len(kpi_candidates))
+
+    # ── If schema_info has no date_column, try to detect one via columns ──
+    if not date_column:
+        _DATE_HINTS = {"date", "time", "month", "year", "week", "day", "period", "created", "updated"}
+        for real_name in actual_columns.values():
+            if any(kw in real_name.lower() for kw in _DATE_HINTS):
+                date_column = real_name
+                logger.info("_derive_kpis: auto-detected date_column=%s", date_column)
+                break
+    else:
+        # Resolve casing for the date column too
+        date_column = _resolve_col(date_column)
 
     kpis: List[KPI] = []
     seen: set = set()
 
     for candidate in kpi_candidates:
-        col  = candidate.get("column", "")
+        col  = _resolve_col(candidate.get("column", ""))
         name = candidate.get("name", col)
         agg  = candidate.get("aggregation", "SUM").upper()
         if name in seen:
@@ -76,14 +145,18 @@ def _derive_kpis(state: Dict[str, Any], run_id: str) -> List[KPI]:
         # ── 1. Compute the all-time aggregate value ────────────────────
         agg_fn = agg if agg in {"SUM", "AVG", "COUNT", "MAX", "MIN"} else "SUM"
         try:
+            sql_agg = f'SELECT {agg_fn}("{col}") AS kpi_val FROM "{table_name}"'
             with engine.connect() as conn:
-                row = conn.execute(
-                    text(f'SELECT {agg_fn}("{col}") AS kpi_val FROM "{table_name}"')
-                ).fetchone()
+                row = conn.execute(text(sql_agg)).fetchone()
             if row and row[0] is not None:
                 value = round(float(row[0]), 2)
+            else:
+                logger.warning(
+                    "KPI query returned NULL for %s (col=%s, agg=%s)",
+                    name, col, agg_fn,
+                )
         except Exception as exc:
-            logger.warning("KPI query failed for %s: %s", col, exc)
+            logger.error("KPI query failed for %s (col=%s): %s", name, col, exc)
 
         # ── 2. Compute MoM delta if a date column exists ──────────────
         if date_column and value is not None:
@@ -109,6 +182,10 @@ def _derive_kpis(state: Dict[str, Any], run_id: str) -> List[KPI]:
             except Exception as exc:
                 logger.warning("KPI delta query failed for %s: %s", col, exc)
 
+        logger.info(
+            "KPI derived: name=%s, col=%s, value=%s, delta=%s",
+            name, col, value, delta_pct,
+        )
         kpis.append(KPI(
             id=str(uuid.uuid4()),
             run_id=run_id,

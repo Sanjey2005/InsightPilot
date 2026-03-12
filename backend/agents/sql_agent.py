@@ -12,10 +12,9 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 from agents.utils import Timer, call_gemini, make_log
-from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -214,9 +213,7 @@ def run_sql_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     schema_info: Dict = state.get("schema_info", {})
     table_name: str = state["table_name"]
 
-    engine = create_engine(
-        settings.database_url, connect_args={"check_same_thread": False}
-    )
+    from core.database import engine
 
     sql_results: List[Dict] = []
     n_ok = 0
@@ -271,6 +268,6 @@ def run_sql_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     )
     return {
         "sql_results": sql_results,
-        "agent_logs": [log],
-        "errors": [],
+        "agent_logs": state.get("agent_logs", []) + [log],
+        "errors": state.get("errors", []),
     }

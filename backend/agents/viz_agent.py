@@ -77,6 +77,6 @@ def run_viz_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     )
     return {
         "insights": enriched,
-        "agent_logs": [log],
-        "errors": [],
+        "agent_logs": state.get("agent_logs", []) + [log],
+        "errors": state.get("errors", []),
     }
